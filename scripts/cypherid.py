@@ -12,7 +12,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--log-level", default="DEBUG", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
 args = parser.parse_args()
 level = getattr(logging, args.log_level.upper())
-logger = setup_logger("cypherid", "logs/cypherid.log")
+
+# Hard coding the logs location (could change this if cluster runs need the logs to go somewhere else)
+# Get the project root directory (one level up from scripts/)
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+log_file = os.path.join(project_root, "logs", "cypherid.log")
+logger = setup_logger("cypherid", log_file)
 
 def run_pipeline(pipeline_name):
     logger.info(f"Attempting to run pipeline: {pipeline_name}")
