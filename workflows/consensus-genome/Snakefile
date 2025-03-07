@@ -2,7 +2,6 @@
 Snakefile for consensus genome workflow.
 """
 
-
 configfile: "workflows/consensus-genome/config.yaml"
 
 rule pipeline1_main:
@@ -11,18 +10,18 @@ rule pipeline1_main:
     output:
         "data/output/pipeline1.done"
     params:
-        max_reads = config.get("max_reads", 0.5)
-    script:
-        "../scripts/run_pipeline1.py"  # Example script using src/ functions
+        max_reads = config.get("max_reads")
+    # script:
+    #     "../scripts/run_pipeline1.py"
 
-# Cluster-specific resource allocation
-rule neural_net_step:
+
+rule align_reads_step:
     input:
-        "data/output/intermediate1.csv"
+        "data/output/trimmed-sample1.fastq"
     output:
-        "data/output/pipeline1_neural.done"
+        "data/output/trimmed-sample1.sam"
     resources:
         cpus=8,
         mem_mb=16000  # 16 GB RAM
-    shell:
-        "python src/neural_nets.py {input} {output}"
+    # shell:
+    #     "python src/align.py {input} {output}"
