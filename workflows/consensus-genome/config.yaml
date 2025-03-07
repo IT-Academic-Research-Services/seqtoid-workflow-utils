@@ -1,0 +1,32 @@
+"""
+Configuration for consensus genome workflow.
+"""
+
+# Input and output file paths
+input:
+  fasta: "data/input/sample1.fastq"      # Input FASTA file with genetic sequences
+
+output:
+  results: "data/output/consensus-genome.csv"  # Main output file
+  plots: "data/output/consensus-genome_plots/"         # Directory for visualization outputs
+  done_flag: "data/output/consensus-genome.done"       # Flag file to mark completion
+
+# Genetic calculation parameters
+genetics:
+  max_reads: 0.5       # Upper limit cutoff for number of reads used
+
+# Logging settings
+logging:
+  level: "DEBUG"              # Logging level: DEBUG, INFO, WARNING, ERROR
+  file: "logs/consensus-genome.log"  # Log file path
+
+# Cluster resource settings (used with cluster.yaml)
+resources:
+  default:
+    cpus: 8                   # Default CPU cores per task
+    mem_mb: 8000              # Default memory (in MB)
+    time: "08:00:00"          # Default time limit (hh:mm:ss)
+  align_reads_step:
+    cpus: 16                   # CPUs required for alignment step
+    mem_mb: 16000             # Memory for alignment step
+    time: "16:00:00"          # Time limit for alignment net step
