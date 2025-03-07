@@ -1,0 +1,13 @@
+#Base config for CypherID.
+
+input:
+  base_dir: "data/input/"
+output:
+  base_dir: "data/output/"
+logging:
+  level: "INFO"
+  dir: "logs/"
+resources:
+  default:
+    cpus: 1
+    mem_mb: 4000

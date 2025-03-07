@@ -1,0 +1,16 @@
+# BioSnakeProject/config/cluster_submit.yaml
+__default__:
+  nodes: 1
+  cpus-per-task: "{resources.cpus}"
+  mem: "{resources.mem_mb}M"
+  time: "02:00:00"
+  output: "logs/slurm-%j.out"
+  error: "logs/slurm-%j.err"
+  partition: "cpu"
+align_reads_step:
+  nodes: 1
+  cpus-per-task: "{resources.cpus}"
+  mem: "{resources.mem_mb}M"
+  time: "04:00:00"
+  gpus: "nvidia:1"           # SLURM GPU request (syntax depends on your cluster)
+  partition: "gpu"

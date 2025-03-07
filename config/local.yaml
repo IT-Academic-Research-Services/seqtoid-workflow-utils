@@ -1,0 +1,15 @@
+# Config for running CypherID locally.
+
+input:
+  base_dir: "data/input/"  # Same as default, but could be adjusted
+output:
+  base_dir: "data/output/"
+logging:
+  level: "DEBUG"           # More verbose for local debugging
+  dir: "logs/"
+resources:
+  default:
+    cpus: 4                # Limited to laptop’s cores
+    mem_mb: 8000           # Limited to laptop’s RAM
+execution:
+  mode: "local"            # Indicates local execution (optional metadata)

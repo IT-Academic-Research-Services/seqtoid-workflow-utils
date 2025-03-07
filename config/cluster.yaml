@@ -1,0 +1,18 @@
+# Config for direct runs on cluster.
+
+input:
+  base_dir: "/cluster/storage/input/"  # Cluster-specific path
+output:
+  base_dir: "/cluster/storage/output/" # Cluster-specific path
+logging:
+  level: "INFO"
+  dir: "/cluster/storage/logs/"        # Cluster-shared log directory
+resources:
+  default:
+    cpus: 4                            # More cores available on cluster
+    mem_mb: 16000                      # More memory available
+  neural_net_step:
+    gpus: 1                            # GPU request for specific steps
+    mem_mb: 32000
+execution:
+  mode: "cluster"                      # Indicates cluster execution (optional metadata)
