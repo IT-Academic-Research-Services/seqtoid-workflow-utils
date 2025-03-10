@@ -11,8 +11,8 @@ rule pipeline1_main:
         "data/output/pipeline1.done"
     params:
         max_reads = config.get("max_reads")
-    # script:
-    #     "../scripts/run_pipeline1.py"
+    script:
+        "../../scripts/consensus-genome.py"
 
 
 rule align_reads_step:
