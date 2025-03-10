@@ -2,7 +2,11 @@
 Snakefile for consensus genome workflow.
 """
 
-configfile: "workflows/consensus-genome/config.yaml"
+import os
+
+project_root = os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../.."))
+
+configfile: os.path.join(project_root, "workflows/consensus-genome/config.yaml")
 
 rule consensus_genome_main:
     input:

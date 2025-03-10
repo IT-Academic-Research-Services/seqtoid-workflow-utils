@@ -2,6 +2,9 @@
 Snakefile for CypherID project.
 """
 
+import os
+
+project_root = os.path.dirname(os.path.abspath(workflow.snakefile))
 
 include: "workflows/consensus-genome/Snakefile"
 

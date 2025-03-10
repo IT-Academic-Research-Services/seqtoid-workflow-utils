@@ -17,7 +17,7 @@ def run_pipeline(logger, project_root, pipeline_name=None, dry_run=False, **kwar
         print(f"Error: Snakefile {snakefile} not found.")
         sys.exit(1)
 
-    cmd = ["snakemake", "--snakefile", str(snakefile)]
+    cmd = ["snakemake", "--snakefile", str(snakefile), "--config project_root", str(project_root)]
     if dry_run:
         cmd.append("-n")  # Dry run
     for key, value in kwargs.items():
