@@ -4,11 +4,11 @@ Snakefile for consensus genome workflow.
 
 configfile: "workflows/consensus-genome/config.yaml"
 
-rule pipeline1_main:
+rule consensus_genome_main:
     input:
         "data/input/sample1.fastq"
     output:
-        "data/output/pipeline1.done"
+        "data/output/consensus-genome.done"
     params:
         max_reads = config.get("max_reads")
     script:
