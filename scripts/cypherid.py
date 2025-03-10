@@ -29,8 +29,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scri
 parser = argparse.ArgumentParser()
 parser.add_argument("--log-level", default="DEBUG", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
 parser.add_argument("-p", "--pipeline", help="Workflow pipeline file to run (e.g., 'consensus-genome') Defaults to the main pipeline.", default=None)
+parser.add_argument("-c", "--config_file", default=None, choices=["local", "cluster", "cluster_submit"])
 parser.add_argument("--dry-run", action="store_true", help="Perform a dry run")
-# parser.add_argument("--cores", type=int, default=1, help="Number of cores to use")
 
 args = parser.parse_args()
 level = getattr(logging, args.log_level.upper())
@@ -38,16 +38,22 @@ level = getattr(logging, args.log_level.upper())
 # Use a relative log file path; setup_logger will place it in cwd/logs/
 log_file = "logs/cypherid.log"
 
-# Optionally load config for level, but log dir is handled by setup_logger
-config_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "config.yaml")
+# Load config
+if args.config_file is None:
+    config_name = 'config.yaml'
+else:
+    config_name = args.config_file + '.yaml'
+
+config_file = PROJECT_ROOT / "config" / config_name
+
 if os.path.exists(config_file):
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
 else:
+    print(f"Config file {config_file} not found")
     config = {}
 
 logger = setup_logger("cypherid", log_file, level=config.get("logging", {}).get("level", "INFO"))
-
 
 # -------------------------
 # Functions
