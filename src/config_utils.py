@@ -23,8 +23,6 @@ def setup_config(project_root, config_file):
     :return: Config dict.
     """
 
-
-    # Load config
     if config_file is None:
         config_name = BASE_CONFIG_FILE
     else:

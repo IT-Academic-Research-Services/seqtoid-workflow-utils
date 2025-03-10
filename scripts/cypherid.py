@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 from src.logging_utils import setup_logger
 from src.config_utils import setup_config
+from src.pipeline_utils import run_pipeline
 
 
 # -------------------------
@@ -41,33 +42,6 @@ logger = setup_logger("cypherid", LOG_FILENAME, level=config.get("logging", {}).
 # Functions
 # -------------------------
 
-def run_pipeline(pipeline_name=None, dry_run=False, **kwargs):
-    """
-        Run a CypherID workflow.
-        :param pipeline_name: Name of the workflow file (e.g., 'workflow1.smk') or None for main Snakefile
-        :param dry_run: If True, perform a dry run (-n flag)
-        :param kwargs: Additional Snakemake CLI arguments
-        """
-
-    logger.info(f"Attempting to run pipeline: {pipeline_name}")
-
-    snakefile = PROJECT_ROOT / "Snakefile" if pipeline_name is None else PROJECT_ROOT / "workflows" / pipeline_name / "Snakefile"
-    if not snakefile.exists():
-        print(f"Error: Snakefile {snakefile} not found.")
-        sys.exit(1)
-
-    cmd = ["snakemake", "--snakefile", str(snakefile)]
-    if dry_run:
-        cmd.append("-n")  # Dry run
-    for key, value in kwargs.items():
-        cmd.extend([f"--{key}", str(value)])
-
-    try:
-        subprocess.run(cmd, shell=False, check=True)
-        logger.info(f"Successfully ran {pipeline_name}")
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Failed to run {pipeline_name}: {str(e)}")
-
 if __name__ == "__main__":
 
     print("\n------------\n  CypherID\n------------\n")
@@ -80,9 +54,9 @@ if __name__ == "__main__":
         choice = args.pipeline
 
     if len(choice) < 1:
-        run_pipeline(pipeline_name=None, dry_run=args.dry_run)
+        run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=None, dry_run=args.dry_run)
     elif choice in AVAILABLE_PIPELINES:
-        run_pipeline(pipeline_name=choice, dry_run=args.dry_run)
+        run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=choice, dry_run=args.dry_run)
     else:
         logger.warning(f"Invalid pipeline name entered: {choice}")
         print("Invalid pipeline name!")
