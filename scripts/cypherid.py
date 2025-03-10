@@ -2,14 +2,13 @@
 CypherID main run script.
 """
 
-import os
 import sys
 import logging
 import argparse
 import subprocess
-import yaml
 from pathlib import Path
 from src.logging_utils import setup_logger
+from src.config_utils import setup_config
 
 
 # -------------------------
@@ -17,7 +16,7 @@ from src.logging_utils import setup_logger
 # -------------------------
 
 AVAILABLE_PIPELINES = ["consensus-genome"]
-
+LOG_FILENAME = "logs/cypherid.log"
 
 # -------------------------
 # Setup
@@ -35,25 +34,8 @@ parser.add_argument("--dry-run", action="store_true", help="Perform a dry run")
 args = parser.parse_args()
 level = getattr(logging, args.log_level.upper())
 
-# Use a relative log file path; setup_logger will place it in cwd/logs/
-log_file = "logs/cypherid.log"
-
-# Load config
-if args.config_file is None:
-    config_name = 'config.yaml'
-else:
-    config_name = args.config_file + '.yaml'
-
-config_file = PROJECT_ROOT / "config" / config_name
-
-if os.path.exists(config_file):
-    with open(config_file, "r") as f:
-        config = yaml.safe_load(f)
-else:
-    print(f"Config file {config_file} not found")
-    config = {}
-
-logger = setup_logger("cypherid", log_file, level=config.get("logging", {}).get("level", "INFO"))
+config = setup_config(PROJECT_ROOT, args.config_file)
+logger = setup_logger("cypherid", LOG_FILENAME, level=config.get("logging", {}).get("level", "INFO"))
 
 # -------------------------
 # Functions
@@ -62,7 +44,7 @@ logger = setup_logger("cypherid", log_file, level=config.get("logging", {}).get(
 def run_pipeline(pipeline_name=None, dry_run=False, **kwargs):
     """
         Run a CypherID workflow.
-        :param wpipeline_name: Name of the workflow file (e.g., 'workflow1.smk') or None for main Snakefile
+        :param pipeline_name: Name of the workflow file (e.g., 'workflow1.smk') or None for main Snakefile
         :param dry_run: If True, perform a dry run (-n flag)
         :param kwargs: Additional Snakemake CLI arguments
         """
