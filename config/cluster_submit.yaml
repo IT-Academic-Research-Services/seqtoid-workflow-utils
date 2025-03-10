@@ -1,4 +1,5 @@
-# BioSnakeProject/config/cluster_submit.yaml
+# Config for SLURM jobs on cluster.
+
 __default__:
   nodes: 1
   cpus-per-task: "{resources.cpus}"

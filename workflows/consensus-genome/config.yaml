@@ -1,6 +1,5 @@
-"""
-Configuration for consensus genome workflow.
-"""
+# Configuration for consensus genome workflow.
+
 
 # Input and output file paths
 input:
