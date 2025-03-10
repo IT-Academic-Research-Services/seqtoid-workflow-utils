@@ -19,7 +19,14 @@ def setup_logger(name, log_file, level=logging.DEBUG):
     Returns:
         logging.Logger: Configured logger instance
     """
-    # Ensure logs directory exists
+
+    # Use current working directory
+    cwd = os.getcwd()
+    # If log_file is absolute, use it as-is; otherwise, place in cwd/logs/
+    if not os.path.isabs(log_file):
+        log_file = os.path.join(cwd, "logs", os.path.basename(log_file))
+
+    # Ensure logs directory exists in the current working directory
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
     # Create logger

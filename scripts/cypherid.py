@@ -6,6 +6,7 @@ import os
 import logging
 import argparse
 import subprocess
+import yaml
 from src.logging_utils import setup_logger
 
 parser = argparse.ArgumentParser()
@@ -13,11 +14,18 @@ parser.add_argument("--log-level", default="DEBUG", choices=["DEBUG", "INFO", "W
 args = parser.parse_args()
 level = getattr(logging, args.log_level.upper())
 
-# Hard coding the logs location (could change this if cluster runs need the logs to go somewhere else)
-# Get the project root directory (one level up from scripts/)
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-log_file = os.path.join(project_root, "logs", "cypherid.log")
-logger = setup_logger("cypherid", log_file)
+# Use a relative log file path; setup_logger will place it in cwd/logs/
+log_file = "logs/cypherid.log"
+
+# Optionally load config for level, but log dir is handled by setup_logger
+config_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config", "config.yaml")
+if os.path.exists(config_file):
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+else:
+    config = {}
+
+logger = setup_logger("cypherid", log_file, level=config.get("logging", {}).get("level", "INFO"))
 
 def run_pipeline(pipeline_name):
     logger.info(f"Attempting to run pipeline: {pipeline_name}")
