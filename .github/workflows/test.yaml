@@ -47,7 +47,7 @@ jobs:
       # Run pytest tests
       - name: Run pytest
         run: |
-          pytest tests/ --junitxml=test-results.xml --cov=scripts/ --cov-report=xml
+          pytest --junitxml=test-results.xml --cov=scripts/ --cov-report=xml
         env:
           PYTHONPATH: ${{ github.workspace }}  # Ensures scripts/ is importable
 
