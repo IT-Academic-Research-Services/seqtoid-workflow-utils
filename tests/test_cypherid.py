@@ -2,18 +2,17 @@
 Tests functions in cypherid.py
 """
 
-import os
 from scripts.cypherid import mock_test
 
-def test_mock_test(instr):
+def test_mock_test(integer_input):
     """
     Tests mock function.
-    :param instr: Expected integer. Fails if cannot be converted into an int.
+    :param integer_input: Expected integer. Fails if cannot be converted into an int.
 
     """
 
     try:
-        x = int(instr)
+        x = int(integer_input)
     except ValueError:
         assert False
     else:
