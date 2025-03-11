@@ -27,10 +27,13 @@ LOG_FILENAME = "logs/cypherid.log"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scripts/
 
 args = parse_arguments()
-level = getattr(logging, args.log_level.upper())
 
 config = setup_config(PROJECT_ROOT, args.config_file)
-logger = setup_logger("cypherid", LOG_FILENAME, level=config.get("logging", {}).get("level", "INFO"))
+if args.log_level is None:
+    log_level = getattr(logging, config.get("logging", {}).get("level", "INFO").upper())
+else:
+    log_level = getattr(logging, args.log_level.upper())
+logger = setup_logger("cypherid", LOG_FILENAME, level=log_level)
 
 # -------------------------
 # Functions
