@@ -16,7 +16,7 @@ def parse_arguments():
     :return: parser.parse_args() output
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("--log-level", default="DEBUG", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("-p", "--pipeline",
                         help="Workflow pipeline file to run (e.g., 'consensus-genome') Defaults to the main pipeline.",
                         default=None)
