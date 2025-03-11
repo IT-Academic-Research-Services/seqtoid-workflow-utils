@@ -53,3 +53,9 @@ run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=PIPELINE_NA
 #     f.write("Done")
 
 logger.info(f"Consensus-genome run completed.")
+
+
+# -------------------------
+# Functions
+# -------------------------
+

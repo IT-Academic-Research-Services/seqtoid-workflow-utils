@@ -39,7 +39,16 @@ logger = setup_logger("cypherid", LOG_FILENAME, level=log_level)
 # Functions
 # -------------------------
 
-if __name__ == "__main__":
+def mock_test(test_num):
+    """
+    Simple function here as a stub to set up the pytest framework.
+    :param test_num: Any integer
+    :return: test_num * 2 if an integer is passed.
+    """
+
+    return test_num * 2
+
+def main():
 
     print("\n------------\n  CypherID\n------------\n")
     if args.pipeline is None:
@@ -57,5 +66,11 @@ if __name__ == "__main__":
     else:
         logger.warning(f"Invalid pipeline name entered: {choice}")
         print("Invalid pipeline name!")
+        exit(1)
+
+
+if __name__ == "__main__":
+
+    main()
 
     exit(0)

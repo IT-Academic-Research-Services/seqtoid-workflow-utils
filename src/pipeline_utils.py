@@ -51,3 +51,5 @@ def run_pipeline(logger, project_root, pipeline_name=None, dry_run=False, **kwar
         logger.info(f"Successfully ran {pipeline_name}")
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to run {pipeline_name}: {str(e)}")
+        sys.exit(1)
+        
