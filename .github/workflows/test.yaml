@@ -47,7 +47,7 @@ jobs:
       # Run pytest tests
       - name: Run pytest
         run: |
-          pytest
+          python -m pytest
         env:
           PYTHONPATH: ${{ github.workspace }}  # Ensures scripts/ is importable
 
@@ -59,15 +59,6 @@ jobs:
           name: Pytest Results (${{ matrix.python-version }})
           path: test-results.xml
           reporter: java-junit
-
-      # Upload coverage report
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        if: success()  # Only upload if tests pass
-        with:
-          file: ./coverage.xml
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}  # Add token in GitHub Secrets
 
 #  test_snakemake:
 #    runs-on: ubuntu-latest
