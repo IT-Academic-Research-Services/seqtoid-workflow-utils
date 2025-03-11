@@ -13,5 +13,4 @@ align_reads_step:
   cpus-per-task: "{resources.cpus}"
   mem: "{resources.mem_mb}M"
   time: "04:00:00"
-  gpus: "nvidia:1"           # SLURM GPU request (syntax depends on your cluster)
-  partition: "gpu"
+  partition: "cpu"
