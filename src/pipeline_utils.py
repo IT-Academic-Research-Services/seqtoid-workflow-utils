@@ -1,6 +1,29 @@
+"""
+Common functions for running all pipelines.
+"""
+
 import sys
 import subprocess
+import argparse
 
+# -------------------------
+# Functions
+# -------------------------
+
+def parse_arguments():
+    """
+    Parse command line arguments for all pipelines.
+    :return: parser.parse_args() output
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--log-level", default="DEBUG", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("-p", "--pipeline",
+                        help="Workflow pipeline file to run (e.g., 'consensus-genome') Defaults to the main pipeline.",
+                        default=None)
+    parser.add_argument("-c", "--config_file", default=None, choices=["local", "cluster", "cluster_submit"])
+    parser.add_argument("--dry-run", action="store_true", help="Perform a dry run")
+
+    return parser.parse_args()
 
 def run_pipeline(logger, project_root, pipeline_name=None, dry_run=False, **kwargs):
     """

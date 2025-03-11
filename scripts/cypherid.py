@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from src.logging_utils import setup_logger
 from src.config_utils import setup_config
-from src.pipeline_utils import run_pipeline
+from src.pipeline_utils import run_pipeline, parse_arguments
 
 
 # -------------------------
@@ -26,13 +26,7 @@ LOG_FILENAME = "logs/cypherid.log"
 # Get the project root directory (where run_workflows.py resides)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scripts/
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--log-level", default="DEBUG", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-parser.add_argument("-p", "--pipeline", help="Workflow pipeline file to run (e.g., 'consensus-genome') Defaults to the main pipeline.", default=None)
-parser.add_argument("-c", "--config_file", default=None, choices=["local", "cluster", "cluster_submit"])
-parser.add_argument("--dry-run", action="store_true", help="Perform a dry run")
-
-args = parser.parse_args()
+args = parse_arguments()
 level = getattr(logging, args.log_level.upper())
 
 config = setup_config(PROJECT_ROOT, args.config_file)
