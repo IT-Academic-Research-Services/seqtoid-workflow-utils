@@ -4,8 +4,6 @@ Consensus genome run script.
 
 import sys
 import logging
-import argparse
-import subprocess
 from pathlib import Path
 from src.logging_utils import setup_logger
 from src.config_utils import setup_config
