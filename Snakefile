@@ -6,10 +6,17 @@ import os
 
 project_root = os.path.dirname(os.path.abspath(workflow.snakefile))
 
-include: "workflows/consensus-genome/Snakefile"
-
+# include: "workflows/consensus-genome/Snakefile"
 
 rule all:
     input:
-        # Default target (optional, can be overridden by interactive selection)
-        "data/output/consensus-genome.done",
+        "data/output/cypherid.done"
+
+rule create_done_file:
+    output:
+        "data/output/cypherid.done"
+    shell:
+        """
+        mkdir -p data/output
+        echo "Done!" > {output}
+        """
