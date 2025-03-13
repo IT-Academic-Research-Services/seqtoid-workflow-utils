@@ -3,7 +3,11 @@
 
 # Input and output file paths
 input:
-  fasta: "data/input/sample1.fastq"      # Input FASTA file with genetic sequences
+  fastq1: "data/input/sample1_R1.fastq"      # Input FASTA file with genetic sequences
+  fastq2: null  # Optional: null indicates single-end; set to a path for paired-end
+
+output_dir: "output"   # Output directory for trimmed files
+fastp_report_json: "output/fastp_report.json"  # Fastp JSON report
 
 output:
   results: "data/output/consensus-genome.csv"  # Main output file
