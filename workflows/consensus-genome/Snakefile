@@ -4,13 +4,20 @@ Snakefile for consensus genome workflow.
 
 import os
 
-project_root = os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../.."))
+# Use project_root from config (passed via --config), fall back to local calculation
+PROJECT_ROOT = config.get("project_root", os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
+configfile: os.path.join(PROJECT_ROOT, "workflows/consensus-genome/config.yaml")
 
-configfile: os.path.join(project_root, "workflows/consensus-genome/config.yaml")
+FASTQ1 = config.get("input", {}).get("fastq1", "data/sample1_R1.fastq")
+FASTQ2 = config.get("input", {}).get("fastq2", None)  # None/null indicates single-end
+OUTPUT_DIR = config.get("output_dir", "output")
+FASTP_REPORT_JSON = config.get("fastp_report_json", "output/fastp_report.json")
 
 rule consensus_genome_main:
     input:
-        "data/input/sample1.fastq"
+        f"{OUTPUT_DIR}/trimmed_R1.fastq",
+        f"{OUTPUT_DIR}/trimmed_R2.fastq",
+        FASTP_REPORT_JSON
     output:
         "data/output/consensus-genome.done"
     params:
@@ -19,13 +26,24 @@ rule consensus_genome_main:
         "../../scripts/consensus-genome.py"
 
 
-rule align_reads_step:
+rule trim_with_fastp:
     input:
-        "data/output/trimmed-sample1.fastq"
+        fq1=FASTQ1,
+        fq2=FASTQ2 if FASTQ2 else []  # Empty list if FASTQ2 is None
     output:
-        "data/output/trimmed-sample1.sam"
-    resources:
-        cpus=8,
-        mem_mb=16000  # 16 GB RAM
-    # shell:
-    #     "python src/align.py {input} {output}"
+        out_fq1=f"{OUTPUT_DIR}/trimmed_R1.fastq",
+        out_fq2=f"{OUTPUT_DIR}/trimmed_R2.fastq" if FASTQ2 else temp(f"{OUTPUT_DIR}/trimmed_R2.fastq"),  # Conditional output
+        json=FASTP_REPORT_JSON
+    log:
+        f"logs/fastp.log"
+    params:
+        fastp_cmd=lambda wildcards, input, output: (
+            f"fastp -i {input.fq1} -I {input.fq2} -o {output.out_fq1} -O {output.out_fq2} --json {output.json}"
+            if FASTQ2 else
+            f"fastp -i {input.fq1} -o {output.out_fq1} --json {output.json}"
+        )
+    shell:
+        """
+        mkdir -p {OUTPUT_DIR} logs
+        {params.fastp_cmd} 2> {log}
+        """
