@@ -24,10 +24,11 @@ def parse_arguments():
                         default=None)
     parser.add_argument("-c", "--config_file", default=None, choices=["local", "cluster", "cluster_submit"])
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run")
+    parser.add_argument("extra_args", nargs=argparse.REMAINDER, help="Additional arguments to pass to Snakemake")
 
     return parser.parse_args()
 
-def run_pipeline(logger, project_root, pipeline_name=None, dry_run=False, **kwargs):
+def run_pipeline(logger, project_root, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
     """
         Run a CypherID workflow.
         :param pipeline_name: Name of the workflow file (e.g., 'workflow1.smk') or None for main Snakefile
@@ -47,6 +48,8 @@ def run_pipeline(logger, project_root, pipeline_name=None, dry_run=False, **kwar
         cmd.append("-n")  # Dry run
     for key, value in kwargs.items():
         cmd.extend([f"--{key}", str(value)])
+    if extra_args is not None:
+        cmd.extend(extra_args)
 
     try:
         subprocess.run(cmd, shell=False, check=True)
