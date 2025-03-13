@@ -23,7 +23,7 @@ PIPELINE_NAME = "consensus-genome"
 # -------------------------
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scripts/
-
+print("PROJECT_ROOT:", PROJECT_ROOT)
 args = parse_arguments()
 
 config = setup_config(PROJECT_ROOT, args.config_file)
@@ -45,8 +45,7 @@ if not snakefile.exists():
     print(f"Error: Snakefile {snakefile} not found.")
     sys.exit(1)
 
-run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run)
-
+run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
 # with open(snakemake.output[0], "w") as f:
 #     f.write("Done")
 

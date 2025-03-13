@@ -60,9 +60,9 @@ def main():
         choice = args.pipeline
 
     if len(choice) < 1:
-        run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=None, dry_run=args.dry_run)
+        run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=None, dry_run=args.dry_run, extra_args=args.extra_args)
     elif choice in AVAILABLE_PIPELINES:
-        run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=choice, dry_run=args.dry_run)
+        run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=choice, dry_run=args.dry_run, extra_args=args.extra_args)
     else:
         logger.warning(f"Invalid pipeline name entered: {choice}")
         print("Invalid pipeline name!")
