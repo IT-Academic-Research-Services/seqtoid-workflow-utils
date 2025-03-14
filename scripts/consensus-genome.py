@@ -51,7 +51,6 @@ if args.log_level is None:
 else:
     log_level = getattr(logging, args.log_level.upper())
 
-
 snakefile = PROJECT_ROOT / "workflows" / PIPELINE_NAME / "Snakefile"
 if not snakefile.exists():
     print(f"Error: Snakefile {snakefile} not found.")

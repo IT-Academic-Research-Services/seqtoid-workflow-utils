@@ -16,7 +16,6 @@ from src.pipeline_utils import run_pipeline, common_parser
 # -------------------------
 
 AVAILABLE_PIPELINES = ["consensus-genome"]
-LOG_FILENAME = "logs/cypherid.log"
 
 # -------------------------
 # Setup
@@ -24,7 +23,6 @@ LOG_FILENAME = "logs/cypherid.log"
 
 # Get the project root directory (where run_workflows.py resides)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scripts/
-
 
 parser = argparse.ArgumentParser(parents=[common_parser()])  # Use common_parser() from pipeline_utils.py only
 args = parser.parse_args()
@@ -52,7 +50,6 @@ def main():
 
     print("\n------------\n  CypherID\n------------\n")
     if args.pipeline is None:
-        logger.debug(f"Available pipelines: {AVAILABLE_PIPELINES}")
 
         print("Available pipelines:", ", ".join(AVAILABLE_PIPELINES))
         choice = input("Enter pipeline name to run or Enter for main pipeline: ").strip()
@@ -60,11 +57,11 @@ def main():
         choice = args.pipeline
 
     if len(choice) < 1:
-        run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=None, dry_run=args.dry_run, extra_args=args.extra_args)
+        run_pipeline(project_root=PROJECT_ROOT, log_level=log_level, pipeline_name=None, dry_run=args.dry_run,
+                     extra_args=args.extra_args)
     elif choice in AVAILABLE_PIPELINES:
-        run_pipeline(logger=logger, project_root=PROJECT_ROOT, pipeline_name=choice, dry_run=args.dry_run, extra_args=args.extra_args)
+        run_pipeline(project_root=PROJECT_ROOT, log_level=log_level, pipeline_name=choice, dry_run=args.dry_run, extra_args=args.extra_args)
     else:
-        logger.warning(f"Invalid pipeline name entered: {choice}")
         print("Invalid pipeline name!")
         exit(1)
 
