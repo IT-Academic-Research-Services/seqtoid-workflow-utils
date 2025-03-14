@@ -7,7 +7,6 @@ import logging
 import argparse
 import subprocess
 from pathlib import Path
-from src.logging_utils import setup_logger
 from src.config_utils import setup_config
 from src.pipeline_utils import run_pipeline, common_parser
 
@@ -35,7 +34,6 @@ if args.log_level is None:
     log_level = getattr(logging, config.get("logging", {}).get("level", "INFO").upper())
 else:
     log_level = getattr(logging, args.log_level.upper())
-logger = setup_logger("cypherid", LOG_FILENAME, level=log_level)
 
 # -------------------------
 # Functions
