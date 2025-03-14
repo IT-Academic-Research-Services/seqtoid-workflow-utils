@@ -12,12 +12,13 @@ from src.defs import FASTQ_EXT_SET, FASTA_EXT_SET, R1_TAG_SET, R2_TAG_SET, R1_TA
 # Functions
 # -------------------------
 
-def parse_arguments():
+def common_parser():
     """
     Parse command line arguments for all pipelines.
     :return: parser.parse_args() output
     """
-    parser = argparse.ArgumentParser()
+
+    parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("-p", "--pipeline",
                         help="Workflow pipeline file to run (e.g., 'consensus-genome') Defaults to the main pipeline.",
@@ -26,7 +27,7 @@ def parse_arguments():
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run")
     parser.add_argument("extra_args", nargs=argparse.REMAINDER, help="Additional arguments to pass to Snakemake")
 
-    return parser.parse_args()
+    return parser
 
 def run_pipeline(logger, project_root, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
     """
