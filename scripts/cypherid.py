@@ -9,7 +9,7 @@ import subprocess
 from pathlib import Path
 from src.logging_utils import setup_logger
 from src.config_utils import setup_config
-from src.pipeline_utils import run_pipeline, parse_arguments
+from src.pipeline_utils import run_pipeline, common_parser
 
 
 # -------------------------
@@ -26,7 +26,9 @@ LOG_FILENAME = "logs/cypherid.log"
 # Get the project root directory (where run_workflows.py resides)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scripts/
 
-args = parse_arguments()
+
+parser = argparse.ArgumentParser(parents=[common_parser()])  # Use common_parser() from pipeline_utils.py only
+args = parser.parse_args()
 
 config = setup_config(PROJECT_ROOT, args.config_file)
 if args.log_level is None:
