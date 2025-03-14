@@ -6,7 +6,7 @@ import os
 import sys
 import subprocess
 import argparse
-from logging_utils import snakemake_log_level
+from src.logging_utils import snakemake_log_level
 from src.defs import FASTQ_EXT_SET, FASTA_EXT_SET, R1_TAG_SET, R2_TAG_SET, R1_TAG, R2_TAG
 
 # -------------------------
