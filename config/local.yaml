@@ -5,7 +5,7 @@ input:
 output:
   base_dir: "data/output/"
 logging:
-  level: "DEBUG"           # More verbose for local debugging
+  level: "INFO"           # More verbose for local debugging
   dir: "logs/"
 resources:
   default:
