@@ -3,7 +3,6 @@ Snakefile for consensus genome workflow.
 """
 
 import os
-from snakemake.utils import logger
 
 project_root = config.get("project_root", os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
 configfile: os.path.join(project_root, "workflows/consensus-genome/config.yaml")
@@ -15,56 +14,59 @@ FASTQ2 = config.get("input", {}).get("fastq2", None)  # None/null indicates sing
 OUTPUT_DIR = config.get("output_dir", "output")
 FASTP_REPORT_JSON = config.get("fastp_report_json", "output/fastp_report.json")
 
-rule consensus_genome_main:
-    input:
-        f"{OUTPUT_DIR}/trimmed_R1.fastq",
-        f"{OUTPUT_DIR}/trimmed_R2.fastq",
-        FASTP_REPORT_JSON
-    output:
-        "data/output/consensus-genome.done"
-    params:
-        max_reads = config.get("max_reads")
-    log:
-        "consensus-genome.log"
-    shell:
-        """
-        echo "Processing {FASTQ1}" > {output} 2>> {log}
-        echo "Finished processing" >> {log}
-        """
+rule all:
+    shell: "echo 'Test'"
+
+# rule all:
+#     input:
+#         f"{OUTPUT_DIR}/trimmed_R1.fastq",
+#         f"{OUTPUT_DIR}/trimmed_R2.fastq",
+#         FASTP_REPORT_JSON
+#     output:
+#         "data/output/consensus-genome.done"
+#     params:
+#         max_reads = config.get("max_reads")
+#     log:
+#         "consensus-genome.log"
+#     shell:
+#         """
+#         echo "Processing {FASTQ1}" > {output} 2>> {log}
+#         echo "Finished processing" >> {log}
+#         """
 
 
-rule trim_with_fastp:
-    input:
-        fq1=FASTQ1,
-        fq2=FASTQ2 if FASTQ2 else []  # Empty list if FASTQ2 is None
-    output:
-        out_fq1=f"{OUTPUT_DIR}/trimmed_R1.fastq",
-        out_fq2=f"{OUTPUT_DIR}/trimmed_R2.fastq" if FASTQ2 else temp(f"{OUTPUT_DIR}/trimmed_R2.fastq"),  # Conditional output
-        json=FASTP_REPORT_JSON
-
-    params:
-        fastp_cmd=lambda wildcards, input, output: (
-            f"fastp -i {input.fq1} -I {input.fq2} -o {output.out_fq1} -O {output.out_fq2} --json {output.json}"
-            if FASTQ2 else
-            f"fastp -i {input.fq1} -o {output.out_fq1} --json {output.json}"
-        )
-    log:
-        "consensus-genome.log"
-    shell:
-        """
-        {params.fastp_cmd} 2> {log}
-        """
-
-onstart:
-    logger.info(f"Starting consensus genome pipeline.")
-    print("\nStarting consensus genome pipeline...")
-
-onerror:
-    logger.error("Consensus genome pipeline failed. Check the log file %s for details.", log_file)
-    logger.error("Error message: %s", fail_message)
-    print("\nERROR: Consensus genome pipeline failed!")
-    print(f"Reason: {fail_message}")
-
-onsuccess:
-    logger.info("Consensus genome pipeline completed successfully!")
-    print("\nSUCCESS: Consensus genome pipeline finished without errors.")
+# rule trim_with_fastp:
+#     input:
+#         fq1=FASTQ1,
+#         fq2=FASTQ2 if FASTQ2 else []  # Empty list if FASTQ2 is None
+#     output:
+#         out_fq1=f"{OUTPUT_DIR}/trimmed_R1.fastq",
+#         out_fq2=f"{OUTPUT_DIR}/trimmed_R2.fastq" if FASTQ2 else temp(f"{OUTPUT_DIR}/trimmed_R2.fastq"),  # Conditional output
+#         json=FASTP_REPORT_JSON
+#
+#     params:
+#         fastp_cmd=lambda wildcards, input, output: (
+#             f"fastp -i {input.fq1} -I {input.fq2} -o {output.out_fq1} -O {output.out_fq2} --json {output.json}"
+#             if FASTQ2 else
+#             f"fastp -i {input.fq1} -o {output.out_fq1} --json {output.json}"
+#         )
+#     log:
+#         "consensus-genome.log"
+#     shell:
+#         """
+#         {params.fastp_cmd} 2> {log}
+#         """
+#
+# onstart:
+#     logger.info(f"Starting consensus genome pipeline.")
+#     print("\nStarting consensus genome pipeline...")
+#
+# onerror:
+#     logger.error("Consensus genome pipeline failed. Check the log file %s for details.", log_file)
+#     logger.error("Error message: %s", fail_message)
+#     print("\nERROR: Consensus genome pipeline failed!")
+#     print(f"Reason: {fail_message}")
+#
+# onsuccess:
+#     logger.info("Consensus genome pipeline completed successfully!")
+#     print("\nSUCCESS: Consensus genome pipeline finished without errors.")
