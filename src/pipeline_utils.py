@@ -30,7 +30,7 @@ def common_parser():
 
     return parser
 
-def run_pipeline(project_root, log_level=logging.DEBUG, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
+def run_pipeline(project_root, logger, log_path, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
     """
         Run a CypherID workflow.
         :param project_root: project root directory.
@@ -41,14 +41,18 @@ def run_pipeline(project_root, log_level=logging.DEBUG, pipeline_name=None, dry_
         :param kwargs: Additional Snakemake CLI arguments
         """
 
+    logger.info("Starting run_pipeline")
+
     snakefile = project_root / "Snakefile" if pipeline_name is None else project_root/ "workflows" / pipeline_name / "Snakefile"
     if not snakefile.exists():
         print(f"Error: Snakefile {snakefile} not found.")
         sys.exit(1)
 
-    snakemake_log_flag = snakemake_log_level(log_level)
+    log_handler_script = os.path.join(project_root, "src", "log_handler.py")
+    env = os.environ.copy()
+    env["SNAKEMAKE_LOG_FILE"] = log_path
 
-    cmd = ["snakemake", "--snakefile", snakefile, "--config", f"project_root={project_root}", snakemake_log_flag]
+    cmd = ["snakemake", "--snakefile", snakefile, "--config", f"project_root={project_root}", "--log-handler-script", log_handler_script]
     if dry_run:
         cmd.append("-n")  # Dry run
     for key, value in kwargs.items():
@@ -57,10 +61,13 @@ def run_pipeline(project_root, log_level=logging.DEBUG, pipeline_name=None, dry_
         cmd.extend(extra_args)
 
     try:
-        subprocess.run(cmd, shell=False, check=True)
+        subprocess.run(cmd, shell=False, check=True, env=env)
     except subprocess.CalledProcessError as e:
         print(f"Failed to run {pipeline_name}: {str(e)}")
         sys.exit(1)
+    else:
+        logger.info(f"Finished run_pipeline {pipeline_name}")
+
 
 def acquire_fast_a_q_files(working_dir, file_base, fastq=True, delims={'_', '-'}, without_r1=True):
     """

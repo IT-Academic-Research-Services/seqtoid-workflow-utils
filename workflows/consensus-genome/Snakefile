@@ -3,18 +3,10 @@ Snakefile for consensus genome workflow.
 """
 
 import os
-import logging
-from datetime import datetime
 from snakemake.utils import logger
 
 project_root = config.get("project_root", os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
 configfile: os.path.join(project_root, "workflows/consensus-genome/config.yaml")
-
-log_dir = os.path.join(os.getcwd(), 'logs')
-log_date = datetime.now().strftime('%Y%m%d_%H%M%S')
-log_file = "logs/consensus_genome_" + log_date +".log"
-file_handler = logging.FileHandler(log_file)
-file_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 
 fail_message = "Placeholder error message."
 
@@ -30,10 +22,10 @@ rule consensus_genome_main:
         FASTP_REPORT_JSON
     output:
         "data/output/consensus-genome.done"
-    log:
-        log_file
     params:
         max_reads = config.get("max_reads")
+    log:
+        "consensus-genome.log"
     shell:
         """
         echo "Processing {FASTQ1}" > {output} 2>> {log}
@@ -49,23 +41,21 @@ rule trim_with_fastp:
         out_fq1=f"{OUTPUT_DIR}/trimmed_R1.fastq",
         out_fq2=f"{OUTPUT_DIR}/trimmed_R2.fastq" if FASTQ2 else temp(f"{OUTPUT_DIR}/trimmed_R2.fastq"),  # Conditional output
         json=FASTP_REPORT_JSON
-    log:
-        log_file
+
     params:
         fastp_cmd=lambda wildcards, input, output: (
             f"fastp -i {input.fq1} -I {input.fq2} -o {output.out_fq1} -O {output.out_fq2} --json {output.json}"
             if FASTQ2 else
             f"fastp -i {input.fq1} -o {output.out_fq1} --json {output.json}"
         )
+    log:
+        "consensus-genome.log"
     shell:
         """
         {params.fastp_cmd} 2> {log}
         """
 
 onstart:
-    shell(f"mkdir -p {log_dir}")
-    logger.addHandler(file_handler)
-
     logger.info(f"Starting consensus genome pipeline.")
     print("\nStarting consensus genome pipeline...")
 
