@@ -53,13 +53,13 @@ def run_pipeline(project_root, logger, log_path, pipeline_name=None, dry_run=Fal
     env["SNAKEMAKE_LOG_FILE"] = log_path
 
     cmd = ["snakemake", "--snakefile", snakefile, "--config", f"project_root={project_root}"]
+
     if dry_run:
         cmd.append("-n")  # Dry run
     for key, value in kwargs.items():
         cmd.extend([f"--{key}", str(value)])
     if extra_args is not None:
         cmd.extend(extra_args)
-    logger.info(f"right before subprocess.run")
 
     try:
         subprocess.run(cmd, shell=False, check=True, env=env)

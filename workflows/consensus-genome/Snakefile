@@ -15,7 +15,13 @@ OUTPUT_DIR = config.get("output_dir", "output")
 FASTP_REPORT_JSON = config.get("fastp_report_json", "output/fastp_report.json")
 
 rule all:
-    shell: "echo 'Test'"
+    log:
+        "logs/consensus-genome.log"
+    shell:
+        """
+        echo 'Test'
+        echo 'Test' > {log}
+        """
 
 # rule all:
 #     input:
