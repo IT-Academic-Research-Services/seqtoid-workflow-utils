@@ -12,6 +12,8 @@ Common definitions.
 # File definitions
 # ---------------
 
+PROJECT_ROOT_NAME = "project_root"
+
 # ---------------
 # Bio File definitions
 # ---------------

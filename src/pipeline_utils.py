@@ -6,8 +6,15 @@ import os
 import sys
 import subprocess
 import argparse
-from src.logging_utils import snakemake_log_level
+from src.logging_utils import get_logger
 from src.defs import FASTQ_EXT_SET, FASTA_EXT_SET, R1_TAG_SET, R2_TAG_SET, R1_TAG, R2_TAG
+
+# -------------------------
+# Definitions
+# -------------------------
+
+STANDARD_CONFIG_FILE = "config/config.yaml"
+
 
 # -------------------------
 # Functions
@@ -30,29 +37,29 @@ def common_parser():
 
     return parser
 
-def run_pipeline(project_root, logger, log_path, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
+def run_pipeline(project_root, log_path, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
     """
         Run a CypherID workflow.
         :param project_root: project root directory.
-        :param log_level: Log level to use (DEBUG, INFO, WARNING, ERROR). Translates to Snakemake log level.
+        :param log_path: Absolute path to the log file.
         :param pipeline_name: Name of the workflow file (e.g., 'workflow1.smk') or None for main Snakefile
         :param dry_run: If True, perform a dry run (-n flag)
         :param extra_args: Additional arguments to pass to Snakemake
         :param kwargs: Additional Snakemake CLI arguments
         """
 
-    logger.info("Starting run_pipeline")
+    get_logger().info("Starting run_pipeline")
 
     snakefile = project_root / "Snakefile" if pipeline_name is None else project_root/ "workflows" / pipeline_name / "Snakefile"
     if not snakefile.exists():
         print(f"Error: Snakefile {snakefile} not found.")
         sys.exit(1)
 
-    log_handler_script = os.path.join(project_root, "src", "log_handler.py")
-    env = os.environ.copy()
-    env["SNAKEMAKE_LOG_FILE"] = log_path
-
-    cmd = ["snakemake", "--snakefile", snakefile, "--config", f"project_root={project_root}"]
+    cmd = [
+        "snakemake",
+        "--snakefile", snakefile,
+        "--config", f"project_root={project_root}", f"log_path={log_path}"
+    ]
 
     if dry_run:
         cmd.append("-n")  # Dry run
@@ -62,12 +69,12 @@ def run_pipeline(project_root, logger, log_path, pipeline_name=None, dry_run=Fal
         cmd.extend(extra_args)
 
     try:
-        subprocess.run(cmd, shell=False, check=True, env=env)
+        subprocess.run(cmd, shell=False, check=True)
     except subprocess.CalledProcessError as e:
-        print(f"Failed to run {pipeline_name}: {str(e)}")
+        get_logger().critical(f"Failed to run {pipeline_name}: {str(e)}")
         sys.exit(1)
     else:
-        logger.info(f"Finished run_pipeline {pipeline_name}")
+        get_logger().info(f"Finished run_pipeline {pipeline_name}")
 
 
 def acquire_fast_a_q_files(working_dir, file_base, fastq=True, delims={'_', '-'}, without_r1=True):

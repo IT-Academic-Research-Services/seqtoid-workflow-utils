@@ -7,6 +7,20 @@ import os
 
 
 # -------------------------
+# Setup
+# -------------------------
+
+_logger = None
+
+
+# -------------------------
+# Setup
+# -------------------------
+
+LOGGER_NAME = 'cypherid'
+
+
+# -------------------------
 # Functions
 # -------------------------
 
@@ -28,7 +42,7 @@ def snakemake_log_level(log_level):
         log_flag = "--quiet"  # Minimal output
     return log_flag
 
-def setup_logger(name, log_file, level=logging.DEBUG):
+def get_logger(log_file=None, level=logging.DEBUG):
     """
     Set up a logger with file and console handlers.
 
@@ -40,42 +54,47 @@ def setup_logger(name, log_file, level=logging.DEBUG):
     :return  logging.Logger: Configured logger instance
     """
 
-    # Ensure logs directory exists
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+    global _logger
 
-    # Create logger
-    logger = logging.getLogger(name)
-    logger.setLevel(level)
+    if _logger is None:
 
-    # Avoid duplicate handlers if logger is reused
-    if logger.handlers:
-        logger.handlers.clear()
+        os.makedirs(os.path.dirname(log_file), exist_ok=True)
 
-    # Create file handler
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setLevel(level)
+        _logger = logging.getLogger(LOGGER_NAME)
+        _logger.setLevel(level)
 
-    # Create console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(level)
+        if _logger.handlers:  # Avoid duplicate handlers if logger is reused
+            _logger.handlers.clear()
 
-    # Define log format
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
 
-    # Add handlers to logger
-    logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(level)
 
-    return logger
 
-# Example usage within this module (optional, for testing)
-if __name__ == "__main__":
-    logger = setup_logger("test", "logs/test.log")
-    logger.debug("This is a debug message")
-    logger.warning("This is a warning message")
-    logger.error("This is an error message")
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(level)
+
+
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        file_handler.setFormatter(formatter)
+        console_handler.setFormatter(formatter)
+
+
+        _logger.addHandler(file_handler)
+        _logger.addHandler(console_handler)
+
+    return _logger
+
+def set_log_file(log_file, level=logging.DEBUG):
+    get_logger(log_file, level)
+
+
+# # Example usage within this module (optional, for testing)
+# if __name__ == "__main__":
+#     logger = setup_logger("test", "logs/test.log")
+#     logger.debug("This is a debug message")
+#     logger.warning("This is a warning message")
+#     logger.error("This is an error message")

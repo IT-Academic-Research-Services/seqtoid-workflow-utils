@@ -3,9 +3,19 @@ Snakefile for consensus genome workflow.
 """
 
 import os
+import json
 
-project_root = config.get("project_root", os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
-configfile: os.path.join(project_root, "workflows/consensus-genome/config.yaml")
+from src.defs import PROJECT_ROOT_NAME
+from src.logging_utils import get_logger, set_log_file
+
+
+project_root = config.get(PROJECT_ROOT_NAME, os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
+
+
+log_path = config.get("log_path", "logs/consensus_genome.log")
+set_log_file(log_path)
+
+# configfile: os.path.join(project_root, "workflows/consensus-genome/config.yaml")
 
 fail_message = "Placeholder error message."
 
@@ -14,15 +24,26 @@ FASTQ2 = config.get("input", {}).get("fastq2", None)  # None/null indicates sing
 OUTPUT_DIR = config.get("output_dir", "output")
 FASTP_REPORT_JSON = config.get("fastp_report_json", "output/fastp_report.json")
 
+
+rule dump_config:
+    output:
+        "logs/config_dump.txt"  # File where the config will be written
+    run:
+        logger = get_logger(log_file=log_path)
+        logger.info("dump config")
+        with open(output[0], "w") as f:
+            f.write(json.dumps(config, indent=2))
+
+
 rule all:
-    log:
-        "logs/consensus-genome.log"
+    input:
+        "config_dump.txt"
     shell:
         """
         echo 'Test'
-        echo 'Test' > {log}
-        """
 
+        """
+    # echo'Test' > {log_path}
 # rule all:
 #     input:
 #         f"{OUTPUT_DIR}/trimmed_R1.fastq",
