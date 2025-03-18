@@ -28,13 +28,13 @@ def setup_config(project_root, config_file):
     else:
         config_name = config_file + '.yaml'
 
-    config_file = project_root / "config" / config_name
+    config_path = project_root / "config" / config_name
 
-    if os.path.exists(config_file):
-        with open(config_file, "r") as f:
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
             config = yaml.safe_load(f)
     else:
         print(f"Config file {config_file} not found")
         config = {}
 
-    return config
+    return config, config_path

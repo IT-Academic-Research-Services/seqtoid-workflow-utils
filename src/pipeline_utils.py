@@ -37,7 +37,7 @@ def common_parser():
 
     return parser
 
-def run_pipeline(project_root, log_path, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
+def run_pipeline(project_root, log_path, config_path=None, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
     """
         Run a CypherID workflow.
         :param project_root: project root directory.
@@ -58,7 +58,8 @@ def run_pipeline(project_root, log_path, pipeline_name=None, dry_run=False, extr
     cmd = [
         "snakemake",
         "--snakefile", snakefile,
-        "--config", f"project_root={project_root}", f"log_path={log_path}"
+        "--config", f"project_root={project_root}", f"log_path={log_path}",
+        "--configfile", config_path
     ]
 
     if dry_run:

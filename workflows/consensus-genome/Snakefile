@@ -15,7 +15,11 @@ project_root = config.get(PROJECT_ROOT_NAME, os.path.abspath(os.path.join(os.pat
 log_path = config.get("log_path", "logs/consensus_genome.log")
 set_log_file(log_path)
 
-# configfile: os.path.join(project_root, "workflows/consensus-genome/config.yaml")
+default_config = os.path.join(project_root, "workflows/consensus-genome/config.yaml")
+# noinspection PyUnresolvedReferences
+configfile_path = workflow.configfiles[0] if workflow.configfiles else default_config
+configfile: configfile_path
+
 
 fail_message = "Placeholder error message."
 

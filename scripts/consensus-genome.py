@@ -47,7 +47,8 @@ def parse_arguments():
 # -------------------------
 
 args = parse_arguments()
-config = setup_config(PROJECT_ROOT, args.config_file)
+config, config_path = setup_config(PROJECT_ROOT, args.config_file)
+
 if args.log_level is None:
     log_level = getattr(logging, config.get("logging", {}).get("level", "INFO").upper())
 else:
@@ -67,7 +68,7 @@ if not snakefile.exists():
     print(f"Error: Snakefile {snakefile} not found.")
     exit(1)
 
-run_pipeline(project_root=PROJECT_ROOT, log_path=log_path, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
+run_pipeline(project_root=PROJECT_ROOT, log_path=log_path, config_path=config_path, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
 
 get_logger().info("Finished consensus genome pipeline")
 
