@@ -27,7 +27,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scri
 parser = argparse.ArgumentParser(parents=[common_parser()])  # Use common_parser() from pipeline_utils.py only
 args = parser.parse_args()
 
-config = setup_config(PROJECT_ROOT, args.config_file)
+config, _ = setup_config(PROJECT_ROOT, args.config_file)
 if args.log_level is None:
     log_level = getattr(logging, config.get("logging", {}).get("level", "INFO").upper())
 else:
