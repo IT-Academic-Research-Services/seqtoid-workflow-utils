@@ -169,3 +169,41 @@ def get_file(in_string, profile_name=None, overwrite_local=True):
         else:
             get_logger().error(f"Download failed for {in_string}.")
             return None
+
+def s3_upload(file_path, s3_bucket, out_prefix=None, delete_local=True):
+    """
+    Uploads a local file to S3. Defaults to deleting local.
+    :param file_path: path to local file
+    :param s3_bucket: Valid s3 bucket
+    :param out_prefix: prefix for s3 path apart from basename
+    :param delete_local: If True, delete the local file upon completed upload.
+    :return: S3 path or False if error encountered
+    """
+
+    if not os.path.isfile(file_path):
+        get_logger().error(f"File {file_path} does not exist.")
+        return False
+
+    dirname, basename = os.path.split(file_path)
+
+    if out_prefix:
+        s3_dir_cols = out_prefix.split('/')
+        s3_dir_cols = [col for col in s3_dir_cols if col]
+
+        s3_dir_cols.append(basename)
+        s3_path = '/'.join(s3_dir_cols)
+    else:
+        s3_path = basename
+
+    s3 = boto3.client('s3')
+    try:
+        _ = s3.upload_file(file_path, s3_bucket, s3_path)
+    except ClientError as e:
+        get_logger().error(e)
+        return False
+    else:
+        if delete_local:
+            os.remove(file_path)
+        s3.close()
+    return s3_path
+
