@@ -7,12 +7,15 @@ Common definitions.
 # Character definitions
 # ---------------
 
+GZIP_MAGIC_NUMBER = b'\x1f\x8b'
+
 
 # ---------------
-# File definitions
+# General File definitions
 # ---------------
 
-PROJECT_ROOT_NAME = "project_root"
+GZIP_EXT_SET = {'.gz', '.gzip'}
+
 
 # ---------------
 # Bio File definitions
@@ -30,7 +33,14 @@ FASTQ_EXT_SET = {'.fq', '.fastq', '.fastq.gz', '.fq.gz'}
 R1_TAG_SET = {'R1', 'r1'}
 R2_TAG_SET = {'R2', 'r2'}
 
+
 # ---------------
 # Bio definitions
 # ---------------
 
+
+# ---------------
+# Pipeline definitions
+# ---------------
+
+PROJECT_ROOT_NAME = "project_root"
