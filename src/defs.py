@@ -14,7 +14,7 @@ GZIP_MAGIC_NUMBER = b'\x1f\x8b'
 # General File definitions
 # ---------------
 
-GZIP_EXT_SET = {'.gz', '.gzip'}
+GZIP_EXT_SET = {'.gz', '.gzip', '.tgz'}
 
 
 # ---------------
