@@ -3,10 +3,10 @@ Functions for input/output, including S3.
 """
 
 import os
-import logging
+import subprocess
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, TokenRetrievalError
 
 from src.logging_utils import get_logger
 
@@ -28,8 +28,31 @@ S3_BUCKET_POS = 2
 
 def s3_client(profile_name=None):
 
-    session = boto3.Session(profile_name=profile_name)
-    return session.client('s3')
+    try:
+        session = boto3.Session(profile_name=profile_name)
+        s3c = session.client('s3')
+        s3c.list_buckets()  # This forces credential validation
+        return s3c
+    except TokenRetrievalError:
+        get_logger().warning(f"SSO token expired for profile '{profile_name}'. Attempting to refresh...")
+        try:
+            # Run the AWS CLI SSO login command
+            result = subprocess.run(
+                ["aws", "sso", "login", "--profile", profile_name],
+                check=True,  # Raise an exception if the command fails
+                capture_output=True,  # Capture stdout/stderr
+                text=True  # Return output as strings, not bytes
+            )
+            get_logger().info("SSO login successful:", result.stdout)
+            # Retry creating the session and client after successful login
+            session = boto3.Session(profile_name=profile_name)
+            return session.client('s3')
+        except subprocess.CalledProcessError as e:
+            get_logger().error(f"Failed to run 'aws sso login': {e.stderr}", file=sys.stderr)
+            raise
+        except Exception as e:
+            get_logger().error(f"An unexpected error occurred during SSO login: {str(e)}", file=sys.stderr)
+            raise
 
 def s3_check(in_string, profile_name=None):
     """
@@ -65,8 +88,8 @@ def s3_check(in_string, profile_name=None):
             return None, None, None
 
         try:
-            s3 = s3_client(profile_name)
-            s3.head_bucket(Bucket=bucket_name)
+            s3c = s3_client(profile_name=profile_name)
+            s3c.head_bucket(Bucket=bucket_name)
         except ClientError:
             get_logger().error(f"Bucket name {bucket_name} fails at s3.head_bucket. Returning None.")
             return None, None, None
@@ -75,9 +98,9 @@ def s3_check(in_string, profile_name=None):
 
         if len(prefix_name) < 1:
             get_logger().warning(f"S3 valid but not {prefix_name}. Returning None for prefix.")
-            return s3, bucket_name, None
+            return s3c, bucket_name, None
         else:
-            return s3, bucket_name, prefix_name
+            return s3c, bucket_name, prefix_name
 
     else:
         try:
@@ -206,4 +229,3 @@ def s3_upload(file_path, s3_bucket, out_prefix=None, delete_local=True):
             os.remove(file_path)
         s3.close()
     return s3_path
-
