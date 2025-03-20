@@ -88,11 +88,3 @@ def get_logger(log_file=LOGGER_DEFAULT_FILE, level=logging.DEBUG):
 
 def set_log_file(log_file, level=logging.DEBUG):
     get_logger(log_file, level)
-
-
-# # Example usage within this module (optional, for testing)
-# if __name__ == "__main__":
-#     logger = setup_logger("test", "logs/test.log")
-#     logger.debug("This is a debug message")
-#     logger.warning("This is a warning message")
-#     logger.error("This is an error message")
