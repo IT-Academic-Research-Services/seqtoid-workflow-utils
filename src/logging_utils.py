@@ -18,6 +18,7 @@ _logger = None
 # -------------------------
 
 LOGGER_NAME = 'cypherid'
+LOGGER_DEFAULT_FILE = 'logs/cypherid.log'
 
 
 # -------------------------
@@ -42,7 +43,7 @@ def snakemake_log_level(log_level):
         log_flag = "--quiet"  # Minimal output
     return log_flag
 
-def get_logger(log_file=None, level=logging.DEBUG):
+def get_logger(log_file=LOGGER_DEFAULT_FILE, level=logging.DEBUG):
     """
     Set up a logger with file and console handlers.
 
@@ -70,10 +71,8 @@ def get_logger(log_file=None, level=logging.DEBUG):
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(level)
 
-
         console_handler = logging.StreamHandler()
         console_handler.setLevel(level)
-
 
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -81,7 +80,6 @@ def get_logger(log_file=None, level=logging.DEBUG):
         )
         file_handler.setFormatter(formatter)
         console_handler.setFormatter(formatter)
-
 
         _logger.addHandler(file_handler)
         _logger.addHandler(console_handler)
