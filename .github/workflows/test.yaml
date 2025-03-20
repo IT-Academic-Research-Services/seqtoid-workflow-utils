@@ -23,6 +23,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::941377154785:role/GitHubActionsRole
+          aws-region: us-west-2
+
       # Set up Python
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -60,42 +66,3 @@ jobs:
           name: Pytest Results (${{ matrix.python-version }})
           path: test-results.xml
           reporter: java-junit
-
-#  test_snakemake:
-#    runs-on: ubuntu-latest
-#    strategy:
-#      matrix:
-#        python-version: ['3.13']  # Validate Snakemake with one version (adjust as needed)
-#
-#    steps:
-#      # Checkout the repository
-#      - name: Checkout code
-#        uses: actions/checkout@v4
-#
-#      # Set up Python
-#      - name: Set up Python
-#        uses: actions/setup-python@v4
-#        with:
-#          python-version: ${{ matrix.python-version }}
-#
-#      # Cache pip dependencies
-#      - name: Cache pip dependencies
-#        uses: actions/cache@v3
-#        with:
-#          path: ~/.cache/pip
-#          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
-#          restore-keys: |
-#            ${{ runner.os }}-pip-${{ matrix.python-version }}-
-#
-#      # Install dependencies
-#      - name: Install dependencies
-#        run: |
-#          python -m pip install --upgrade pip
-#          pip install -r requirements.txt  # Includes snakemake
-#
-#      # Validate Snakemake workflow with a dry-run
-#      - name: Snakemake dry-run
-#        run: |
-#          snakemake --dry-run --cores 1
-#        env:
-#          PYTHONPATH: ${{ github.workspace }}  # Ensures scripts are accessible
