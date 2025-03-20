@@ -8,6 +8,14 @@ __default__:
   output: "logs/slurm-%j.out"
   error: "logs/slurm-%j.err"
   partition: "cpu"
+execution:
+  mode: slurm
+  jobs: 4
+  cores: 1  # Local cores for the main Snakemake process
+  latency_wait: 60
+#  use_conda: true
+  dry_run: false
+  cluster_config: "config/cluster.yaml"  # Optional: SLURM-specific settings
 align_reads_step:
   nodes: 1
   cpus-per-task: "{resources.cpus}"

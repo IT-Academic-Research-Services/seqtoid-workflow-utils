@@ -12,4 +12,7 @@ resources:
     cpus: 4                # Limited to laptop’s cores
     mem_mb: 8000           # Limited to laptop’s RAM
 execution:
-  mode: "local"            # Indicates local execution (optional metadata)
+  mode: local
+  cores: 4
+#  use_conda: true
+  dry_run: false

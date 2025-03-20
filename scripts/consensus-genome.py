@@ -68,7 +68,7 @@ if not snakefile.exists():
     print(f"Error: Snakefile {snakefile} not found.")
     exit(1)
 
-run_pipeline(project_root=PROJECT_ROOT, log_path=log_path, config_path=config_path, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
+run_pipeline(project_root=PROJECT_ROOT, log_path=log_path, config_dict=config, config_path=config_path, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
 
 get_logger().info("Finished consensus genome pipeline")
 

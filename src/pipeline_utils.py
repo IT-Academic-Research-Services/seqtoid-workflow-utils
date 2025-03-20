@@ -6,6 +6,7 @@ import os
 import sys
 import subprocess
 import argparse
+import snakemake
 from src.logging_utils import get_logger
 from src.defs import FASTQ_EXT_SET, FASTA_EXT_SET, R1_TAG_SET, R2_TAG_SET, R1_TAG, R2_TAG
 
@@ -37,7 +38,7 @@ def common_parser():
 
     return parser
 
-def run_pipeline(project_root, log_path, config_path=None, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
+def run_pipeline(project_root, log_path, config_dict, config_path=None, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
     """
         Run a CypherID workflow.
         :param project_root: project root directory.
@@ -55,12 +56,32 @@ def run_pipeline(project_root, log_path, config_path=None, pipeline_name=None, d
         print(f"Error: Snakefile {snakefile} not found.")
         sys.exit(1)
 
+    # Get necessary run parameters from the config file
+    execution = config_dict.get("execution", {})
+    mode = execution.get("mode", "local").lower()
+    cores = execution.get("cores", 1)
+    jobs = execution.get("jobs", 1)
+    latency_wait = execution.get("latency_wait", 30)
+    dry_run = execution.get("dry_run", False)
+    cluster_config = execution.get("cluster_config", None)
+
     cmd = [
         "snakemake",
         "--snakefile", snakefile,
         "--config", f"project_root={project_root}", f"log_path={log_path}",
         "--configfile", config_path
     ]
+
+    if mode == "slurm":
+        cmd.extend(["--executor", "slurm"])
+        cmd.extend(["--jobs", str(jobs)])
+        cmd.extend(["--cores", str(cores)])  # Cores for the main process
+        cmd.extend(["--latency-wait", str(latency_wait)])
+    elif mode == "local":
+        cmd.extend(["--cores", str(cores)])
+    else:
+        print(f"Error: Unknown execution mode '{mode}' in config. Use 'local' or 'slurm'.")
+        sys.exit(1)
 
     if dry_run:
         cmd.append("-n")  # Dry run
