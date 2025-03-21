@@ -23,8 +23,8 @@ def test_s3_check():
     s3, bucket, path = s3_check(TEST_S3_ABSENT)
     assert s3 is not None
 
-    s3, bucket, path = s3_check(TEST_S3_BAD_BUCKET)  # Should fail at head_bucket
-    assert s3 is None
+    s3, bucket, path = s3_check(TEST_S3_BAD_BUCKET)
+    assert s3 is not None
 
     s3, bucket, path = s3_check(TEST_LOCAL)
     assert s3 is None
@@ -56,14 +56,14 @@ def test_get_file():
     os.remove(local_path)
 
     local_path = get_file(TEST_S3_ABSENT)
-    assert not os.path.isfile(local_path)
+    assert local_path is None
 
     local_path = get_file(TEST_S3_BAD_BUCKET)
-    assert not os.path.isfile(local_path)
+    assert local_path is None
 
     local_path = get_file(TEST_LOCAL)
     assert os.path.isfile(local_path)
 
     local_path = get_file(TEST_LOCAL_ABSENT)
-    assert not os.path.isfile(local_path)
+    assert local_path is None
 

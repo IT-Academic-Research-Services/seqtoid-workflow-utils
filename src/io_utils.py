@@ -3,7 +3,6 @@ Functions for input/output, including S3.
 """
 
 import os
-import sys
 import subprocess
 
 import boto3
@@ -40,6 +39,7 @@ def s3_client(profile_name=None):
     :param profile_name: AWS profile name
     :return: S3 client object
     """
+    profile_name = profile_name or os.environ.get('AWS_PROFILE')  # Try to retrieve profile from environment if not provided
 
     try:
         session = boto3.Session(profile_name=profile_name)
@@ -264,3 +264,6 @@ def s3_upload(file_path, s3_bucket, out_prefix=None, delete_local=True):
             os.remove(file_path)
         s3.close()
     return s3_path
+
+if __name__ == "__main__":
+    s3, bucket, path = s3_check(TEST_S3, profile_name='AWSAdministratorAccess-941377154785')
