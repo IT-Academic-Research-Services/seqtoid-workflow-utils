@@ -17,6 +17,7 @@ jobs:
     permissions:
       id-token: write  # Add this to allow OIDC token access
       contents: read   # Required for checkout
+      checks: write    # For creating check runs (e.g., test-reporter)
     strategy:
       matrix:
         python-version: ['3.12', '3.13']  # Test across multiple Python versions
