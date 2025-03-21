@@ -31,6 +31,38 @@ TEST_LOCAL_ABSENT = 'tests/data/io/idontexist.txt'
 # Functions
 # -------------------------
 
+def sso_login(profile_name=None):
+    """
+    AWS SSO login, with or without a specified profile name.
+    :param profile_name: AWS profile name (optional)
+    """
+
+    cmd = [
+        "aws", "sso", "login",
+    ]
+
+    if profile_name is not None:
+        cmd.extend(["--profile", profile_name])
+
+    try:
+        result = subprocess.run(
+            cmd,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        get_logger().info("SSO login successful: %s", result.stdout)
+
+    except subprocess.CalledProcessError as e:
+        error_msg = f"Failed to run 'aws sso login': {e.stderr}"
+        get_logger().error(error_msg)
+        raise Exception(error_msg)
+
+    except Exception as e:
+        error_msg = f"Unexpected error during SSO login: {str(e)}"
+        get_logger().error(error_msg)
+        raise Exception(error_msg)
+
 def s3_client(profile_name=None):
     """
     Create an S3 client using the specified AWS profile.
@@ -61,37 +93,42 @@ def s3_client(profile_name=None):
             should_refresh = True
 
         if should_refresh:
-            try:
-                result = subprocess.run(
-                    ["aws", "sso", "login", "--profile", profile_name],
-                    check=True,
-                    capture_output=True,
-                    text=True
-                )
-                get_logger().info("SSO login successful: %s", result.stdout)
-                session = boto3.Session(profile_name=profile_name)
-                s3c = session.client('s3')
-                s3c.list_buckets()  # Validate new credentials
-                return s3c
+            sso_login(profile_name=profile_name)
 
-            except subprocess.CalledProcessError as e:
-                error_msg = f"Failed to run 'aws sso login': {e.stderr}"
-                get_logger().error(error_msg)
-                raise Exception(error_msg)
-
-            except Exception as e:
-                error_msg = f"Unexpected error during SSO login: {str(e)}"
-                get_logger().error(error_msg)
-                raise Exception(error_msg)
-
-        # If it's a ClientError but not an ExpiredToken, re-raise it
         else:
             error_msg = f"Unexpected AWS error: {error_msg}"
             get_logger().error(error_msg)
             raise Exception(error_msg)
     except ProfileNotFound as e:
         error_msg = str(e)
-        print(f"Profile '{profile_name}' not found. Please check your AWS configuration. {e}")
+        get_logger().warning(f"Profile '{profile_name}' not found. {error_msg}")
+        try:
+            session = boto3.Session()  # No profile name
+            s3c = session.client('s3')
+            s3c.list_buckets()  # This forces credential validation
+            return s3c
+        except (ClientError, TokenRetrievalError) as e:
+
+            error_msg = str(e)
+            should_refresh = False
+
+            if isinstance(e, ClientError) and e.response.get('Error', {}).get('Code') == 'ExpiredToken':
+                get_logger().warning(
+                    f"Token expired for profile '{profile_name}': {error_msg}. Attempting to refresh...")
+                should_refresh = True
+
+            elif isinstance(e, TokenRetrievalError):
+                get_logger().warning(
+                    f"Token retrieval failed for profile '{profile_name}': {error_msg}. Attempting to refresh...")
+                should_refresh = True
+
+            if should_refresh:
+                sso_login(profile_name=profile_name)
+
+            else:
+                error_msg = f"Unexpected AWS error: {error_msg}"
+                get_logger().error(error_msg)
+                raise Exception(error_msg)
 
 def s3_check(in_string, profile_name=None):
     """
