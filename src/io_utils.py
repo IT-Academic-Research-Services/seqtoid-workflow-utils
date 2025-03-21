@@ -6,7 +6,7 @@ import os
 import subprocess
 
 import boto3
-from botocore.exceptions import ClientError, TokenRetrievalError
+from botocore.exceptions import ClientError, TokenRetrievalError, ProfileNotFound
 
 from src.logging_utils import get_logger
 
@@ -89,6 +89,9 @@ def s3_client(profile_name=None):
             error_msg = f"Unexpected AWS error: {error_msg}"
             get_logger().error(error_msg)
             raise Exception(error_msg)
+    except ProfileNotFound as e:
+        error_msg = str(e)
+        print(f"Profile '{profile_name}' not found. Please check your AWS configuration. {e}")
 
 def s3_check(in_string, profile_name=None):
     """
