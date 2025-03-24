@@ -25,7 +25,6 @@ def extension_remover_gzip(filename):
     :param filename: Name of file.
     :return: Base of file.
     """
-
     if filename.endswith(tuple(GZIP_EXT_SET)):
         first_base, _ = os.path.splitext(filename)
     else:
@@ -33,6 +32,7 @@ def extension_remover_gzip(filename):
 
     final_base, _ = os.path.splitext(first_base)
     return final_base
+
 
 def gzip_check(s3, bucket_name, path):
     """
@@ -42,44 +42,91 @@ def gzip_check(s3, bucket_name, path):
     :param path: local path or s3 prefix
     :return: file handle
     """
+    if not isinstance(path, str) or not path.strip():
+        get_logger().error("Path must be a non-empty string, got: %s", path)
+        raise ValueError("Path must be a non-empty string")
 
-    if path is None:
-        get_logger().error("Path cannot be None")
-        raise Exception("Path cannot be None")
-    if s3 is None:  # a local file
-        with open(path, "rb") as f:
-            return f.read(2) == GZIP_MAGIC_NUMBER
-    else:
-        if bucket_name is None:
-            get_logger().error("Bucket name cannot be None")
-            raise Exception("Bucket name cannot be None")
-        obj = s3.get_object(Bucket=bucket_name, Key=path, Range='bytes={}-{}'.format(0, 2 - 1))
-        res = obj['Body'].read()
-        return res == GZIP_MAGIC_NUMBER
+    if s3 is None:  # Local file
+        try:
+            with open(path, "rb") as f:
+                return f.read(2) == GZIP_MAGIC_NUMBER
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Local file not found: {path}")
+        except PermissionError:
+            raise PermissionError(f"Permission denied for file: {path}")
+        except OSError as e:
+            raise OSError(f"Error reading local file: {e}")
+    else:  # S3 file
+        if not isinstance(bucket_name, str) or not bucket_name.strip():
+            get_logger().error("Bucket name must be a non-empty string, got: %s", bucket_name)
+            raise ValueError("Bucket name must be a non-empty string")
+        try:
+            obj = s3.get_object(Bucket=bucket_name, Key=path, Range='bytes=0-1')
+            res = obj['Body'].read()
+            if len(res) < 2:
+                get_logger().warning("S3 object too short to check gzip magic number: %s bytes", len(res))
+                return False  # Too short to be gzipped
+            return res == GZIP_MAGIC_NUMBER
+        except s3.exceptions.NoSuchKey:
+            raise FileNotFoundError(f"S3 object not found: s3://{bucket_name}/{path}")
+        except Exception as e:
+            raise RuntimeError(f"Error retrieving S3 object: {e}")
 
-def read_handle(file_path, profile_name=None, force_gz=False):
+
+def read_handle(file_path, profile_name=None, force_gz=False, encoding='utf-8'):
     """
-    Returns a read handle.
+    Returns a read handle. Works with S3 or local files.
     :param file_path: If S3, of form s3://bucket-name/dir/item-name.txt. If local, full path to file.
-    :return: Handle for reading file.
+    :param profile_name: AWS profile name for S3 access (optional).
+    :param force_gz: If True, treat the file as gzipped regardless of detection.
+    :param encoding: Text encoding for reading (default: 'utf-8').
+    :return: Handle for reading file. Caller must close the handle (e.g., using `with` statement).
     """
+    if not isinstance(file_path, str) or not file_path.strip():
+        raise ValueError("file_path must be a non-empty string")
 
-    s3, bucket_name, path = s3_check(file_path, profile_name=profile_name)
-    gzipped = gzip_check(s3, bucket_name, path)
+    try:
+        s3, bucket_name, path = s3_check(file_path, profile_name=profile_name)
+        gzipped = gzip_check(s3, bucket_name, path)
+    except ValueError as e:
+        raise ValueError(f"Invalid file path or configuration: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Error checking file: {e}")
 
     if force_gz:
         gzipped = True
 
     if s3:
-        obj = s3.get_object(Bucket=bucket_name, Key=path)
+        if not path:
+            raise ValueError(f"Invalid S3 path: no key specified in {file_path}")
+        try:
+            obj = s3.get_object(Bucket=bucket_name, Key=path)
+        except s3.exceptions.NoSuchKey:
+            raise FileNotFoundError(f"S3 object not found: s3://{bucket_name}/{path}")
+        except Exception as e:
+            raise RuntimeError(f"Error retrieving S3 object: {e}")
+
         if gzipped:
-            res = gzip.GzipFile(None, 'rb', fileobj=obj['Body'])
+            try:
+                res = gzip.GzipFile(None, 'rb', fileobj=obj['Body'])
+            except OSError as e:
+                raise OSError(f"Failed to decompress S3 object as gzip: {e}")
         else:
             res = obj['Body']
 
-        return io.TextIOWrapper(res)
+        try:
+            return io.TextIOWrapper(res, encoding=encoding)
+        except UnicodeDecodeError as e:
+            raise ValueError(f"File cannot be decoded with encoding {encoding}: {e}")
     else:
-        if gzipped:
-            return gzip.open(file_path, 'rt')
-        else:
-            return open(file_path, 'r')
+        try:
+            if gzipped:
+                return gzip.open(file_path, 'rt', encoding=encoding)
+            else:
+                return open(file_path, 'r', encoding=encoding)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"Local file not found: {file_path}")
+        except PermissionError:
+            raise PermissionError(f"Permission denied for file: {file_path}")
+        except OSError as e:
+            raise OSError(f"Failed to open local file as gzip: {e}")
