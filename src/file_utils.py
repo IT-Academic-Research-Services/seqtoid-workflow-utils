@@ -40,26 +40,30 @@ def gzip_check(s3, bucket_name, path):
     :param s3: s3 client or None
     :param bucket_name: s3 bucket or None
     :param path: local path or s3 prefix
-    :return: file handle
+    :return: Boolean indicating if the file is gzipped
     """
     if not isinstance(path, str) or not path.strip():
         get_logger().error("Path must be a non-empty string, got: %s", path)
-        raise ValueError("Path must be a non-empty string")
+        return None
 
     if s3 is None:  # Local file
         try:
             with open(path, "rb") as f:
                 return f.read(2) == GZIP_MAGIC_NUMBER
         except FileNotFoundError:
-            raise FileNotFoundError(f"Local file not found: {path}")
+            get_logger().error(f"Local file not found: {path}")
+            return None
         except PermissionError:
-            raise PermissionError(f"Permission denied for file: {path}")
+            get_logger().error(f"Permission denied for file: {path}")
+            return None
         except OSError as e:
-            raise OSError(f"Error reading local file: {e}")
+            get_logger().error(f"Error reading local file: {e}")
+            return None
     else:  # S3 file
         if not isinstance(bucket_name, str) or not bucket_name.strip():
             get_logger().error("Bucket name must be a non-empty string, got: %s", bucket_name)
-            raise ValueError("Bucket name must be a non-empty string")
+            return None
+
         try:
             obj = s3.get_object(Bucket=bucket_name, Key=path, Range='bytes=0-1')
             res = obj['Body'].read()
@@ -68,9 +72,11 @@ def gzip_check(s3, bucket_name, path):
                 return False  # Too short to be gzipped
             return res == GZIP_MAGIC_NUMBER
         except s3.exceptions.NoSuchKey:
-            raise FileNotFoundError(f"S3 object not found: s3://{bucket_name}/{path}")
+            get_logger().error(f"S3 object not found: s3://{bucket_name}/{path}")
+            return None
         except Exception as e:
-            raise RuntimeError(f"Error retrieving S3 object: {e}")
+            get_logger().error(f"Error retrieving S3 object: {e}")
+            return None
 
 
 def read_handle(file_path, profile_name=None, force_gz=False, encoding='utf-8'):
@@ -89,35 +95,35 @@ def read_handle(file_path, profile_name=None, force_gz=False, encoding='utf-8'):
         s3, bucket_name, path = s3_check(file_path, profile_name=profile_name)
         gzipped = gzip_check(s3, bucket_name, path)
     except ValueError as e:
-        raise ValueError(f"Invalid file path or configuration: {e}")
+        get_logger().error(f"Invalid file path or configuration: {e}")
     except Exception as e:
-        raise RuntimeError(f"Error checking file: {e}")
+        get_logger().error(f"Error checking file: {e}")
 
     if force_gz:
         gzipped = True
 
     if s3:
         if not path:
-            raise ValueError(f"Invalid S3 path: no key specified in {file_path}")
+            get_logger().error(f"Invalid S3 path: no key specified in {file_path}")
         try:
             obj = s3.get_object(Bucket=bucket_name, Key=path)
         except s3.exceptions.NoSuchKey:
-            raise FileNotFoundError(f"S3 object not found: s3://{bucket_name}/{path}")
+            get_logger().error(f"S3 object not found: s3://{bucket_name}/{path}")
         except Exception as e:
-            raise RuntimeError(f"Error retrieving S3 object: {e}")
+            get_logger().error(f"Error retrieving S3 object: {e}")
 
         if gzipped:
             try:
                 res = gzip.GzipFile(None, 'rb', fileobj=obj['Body'])
             except OSError as e:
-                raise OSError(f"Failed to decompress S3 object as gzip: {e}")
+                get_logger().error(f"Failed to decompress S3 object as gzip: {e}")
         else:
             res = obj['Body']
 
         try:
             return io.TextIOWrapper(res, encoding=encoding)
         except UnicodeDecodeError as e:
-            raise ValueError(f"File cannot be decoded with encoding {encoding}: {e}")
+            get_logger().error(f"File cannot be decoded with encoding {encoding}: {e}")
     else:
         try:
             if gzipped:
@@ -125,8 +131,8 @@ def read_handle(file_path, profile_name=None, force_gz=False, encoding='utf-8'):
             else:
                 return open(file_path, 'r', encoding=encoding)
         except FileNotFoundError:
-            raise FileNotFoundError(f"Local file not found: {file_path}")
+            get_logger().error(f"Local file not found: {file_path}")
         except PermissionError:
-            raise PermissionError(f"Permission denied for file: {file_path}")
+            get_logger().error(f"Permission denied for file: {file_path}")
         except OSError as e:
-            raise OSError(f"Failed to open local file as gzip: {e}")
+            get_logger().error(f"Failed to open local file as gzip: {e}")

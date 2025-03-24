@@ -8,6 +8,8 @@ from src.file_utils import read_handle
 
 TEST_BLANK = 'data/consensus-genome/blank.fastq.gz'
 TEST_NO_HOST = 'data/consensus-genome/no_host_1.fq.gz'
+TEST_CT20K = 'data/consensus-genome/ct20k.fastq.gz'
+TEST_NO_FILE = 'data/consensus-genome/idont_exist.fastq.gz'
 
 
 def test_fastq_iterate():
@@ -17,3 +19,22 @@ def test_fastq_iterate():
     for _ in fastq_iterate(fh):
         lc += 1
     assert lc == 3
+
+
+    fh = read_handle(TEST_BLANK)
+    lc = 0
+    for _ in fastq_iterate(fh):
+        lc += 1
+    assert lc == 0
+
+    fh = read_handle(TEST_CT20K)
+    lc = 0
+    for header, seq, qual in fastq_iterate(fh):
+        if lc == 0:
+            assert header == '@d5115431-c39a-46f9-8c6c-94a1853842dc'
+        lc += 1
+    assert lc == 912
+
+    fh = read_handle(TEST_NO_FILE)
+    assert fh is None
+
