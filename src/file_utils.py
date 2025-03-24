@@ -99,40 +99,41 @@ def read_handle(file_path, profile_name=None, force_gz=False, encoding='utf-8'):
     except Exception as e:
         get_logger().error(f"Error checking file: {e}")
 
-    if force_gz:
-        gzipped = True
-
-    if s3:
-        if not path:
-            get_logger().error(f"Invalid S3 path: no key specified in {file_path}")
-        try:
-            obj = s3.get_object(Bucket=bucket_name, Key=path)
-        except s3.exceptions.NoSuchKey:
-            get_logger().error(f"S3 object not found: s3://{bucket_name}/{path}")
-        except Exception as e:
-            get_logger().error(f"Error retrieving S3 object: {e}")
-
-        if gzipped:
-            try:
-                res = gzip.GzipFile(None, 'rb', fileobj=obj['Body'])
-            except OSError as e:
-                get_logger().error(f"Failed to decompress S3 object as gzip: {e}")
-        else:
-            res = obj['Body']
-
-        try:
-            return io.TextIOWrapper(res, encoding=encoding)
-        except UnicodeDecodeError as e:
-            get_logger().error(f"File cannot be decoded with encoding {encoding}: {e}")
     else:
-        try:
+        if force_gz:
+            gzipped = True
+
+        if s3:
+            if not path:
+                get_logger().error(f"Invalid S3 path: no key specified in {file_path}")
+            try:
+                obj = s3.get_object(Bucket=bucket_name, Key=path)
+            except s3.exceptions.NoSuchKey:
+                get_logger().error(f"S3 object not found: s3://{bucket_name}/{path}")
+            except Exception as e:
+                get_logger().error(f"Error retrieving S3 object: {e}")
+
             if gzipped:
-                return gzip.open(file_path, 'rt', encoding=encoding)
+                try:
+                    res = gzip.GzipFile(None, 'rb', fileobj=obj['Body'])
+                except OSError as e:
+                    get_logger().error(f"Failed to decompress S3 object as gzip: {e}")
             else:
-                return open(file_path, 'r', encoding=encoding)
-        except FileNotFoundError:
-            get_logger().error(f"Local file not found: {file_path}")
-        except PermissionError:
-            get_logger().error(f"Permission denied for file: {file_path}")
-        except OSError as e:
-            get_logger().error(f"Failed to open local file as gzip: {e}")
+                res = obj['Body']
+
+            try:
+                return io.TextIOWrapper(res, encoding=encoding)
+            except UnicodeDecodeError as e:
+                get_logger().error(f"File cannot be decoded with encoding {encoding}: {e}")
+        else:
+            try:
+                if gzipped:
+                    return gzip.open(file_path, 'rt', encoding=encoding)
+                else:
+                    return open(file_path, 'r', encoding=encoding)
+            except FileNotFoundError:
+                get_logger().error(f"Local file not found: {file_path}")
+            except PermissionError:
+                get_logger().error(f"Permission denied for file: {file_path}")
+            except OSError as e:
+                get_logger().error(f"Failed to open local file as gzip: {e}")
