@@ -71,3 +71,15 @@ def fasta_iterate(file_handle):
             return None
 
         yield header, seq
+
+def fast_a_q_iterate(file_handle, fastq=True):
+    """
+    Iterate over a FASTA or FASTQ file.
+    :param file_handle: File handle.
+    :param fastq: If True, iterate over FASTQ file. If False, iterate over FASTA file.
+    :return: Generator or None.
+    """
+    if fastq:
+        return fastq_iterate(file_handle)
+    else:
+        return fasta_iterate(file_handle)
