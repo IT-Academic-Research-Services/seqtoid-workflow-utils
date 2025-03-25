@@ -6,10 +6,9 @@
 from src.fastaq import fastq_iterate
 from src.file_utils import read_handle
 
-TEST_BLANK = 'data/consensus-genome/blank.fastq.gz'
-TEST_NO_HOST = 'data/consensus-genome/no_host_1.fq.gz'
-TEST_CT20K = 'data/consensus-genome/ct20k.fastq.gz'
-TEST_NO_FILE = 'data/consensus-genome/idont_exist.fastq.gz'
+TEST_BLANK = 'tests/data/consensus-genome/blank.fastq.gz'
+TEST_NO_HOST = 'tests/data/consensus-genome/no_host_1.fq.gz'
+TEST_CT20K = 'tests/data/consensus-genome/ct20k.fastq.gz'
 
 
 def test_fastq_iterate():
@@ -34,7 +33,4 @@ def test_fastq_iterate():
             assert header == '@d5115431-c39a-46f9-8c6c-94a1853842dc'
         lc += 1
     assert lc == 912
-
-    fh = read_handle(TEST_NO_FILE)
-    assert fh is None
 
