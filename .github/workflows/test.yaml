@@ -60,7 +60,7 @@ jobs:
           python -m pytest
         env:
           PYTHONPATH: ${{ github.workspace }}  # Ensures scripts/ is importable
-        working-directory: ${{ github.workspace }}/cypherid-workflows
+        working-directory: ${{ github.workspace }}
 
       # Publish test results
       - name: Publish Test Results
