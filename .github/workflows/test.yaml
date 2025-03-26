@@ -26,6 +26,7 @@ jobs:
       # Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v4
+        working-directory: ./cypherid-workflows
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
