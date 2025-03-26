@@ -26,7 +26,6 @@ jobs:
       # Checkout the repository
       - name: Checkout code
         uses: actions/checkout@v4
-        working-directory: ./cypherid-workflows
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -61,6 +60,7 @@ jobs:
           python -m pytest
         env:
           PYTHONPATH: ${{ github.workspace }}  # Ensures scripts/ is importable
+        working-directory: ${{ github.workspace }}/cypherid-workflows
 
       # Publish test results
       - name: Publish Test Results
