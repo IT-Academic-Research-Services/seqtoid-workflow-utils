@@ -24,6 +24,8 @@ GZIP_EXT_SET = {'.gz', '.gzip', '.tgz'}
 # Canonical for creating files
 FASTA_EXT = '.fasta'
 FASTQ_EXT = '.fastq'
+FASTA_TAG = 'FASTA'
+FASTQ_TAG = 'FASTQ'
 R1_TAG = 'R1'
 R2_TAG = 'R2'
 
