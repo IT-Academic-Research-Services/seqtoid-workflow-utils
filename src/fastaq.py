@@ -4,7 +4,7 @@ Functions for working with FASTA and FASTQ files.
 
 import os
 
-from src.defs import FASTQ_EXT_SET, FASTA_EXT_SET, R1_TAG_SET, FASTA_TAG, FASTQ_TAG, R1_TAG, R2_TAG, R2_TAG_SET
+from src.defs import FASTQ_EXT_SET, FASTA_EXT_SET, R1_TAG_SET, FASTA_TAG, FASTQ_TAG, R1_TAG, R2_TAG, R2_TAG_SET, R1_R2_TAGS, FAST_A_Q_DELIMS, R1_TAG_PRIORITY
 from src.logging_utils import get_logger
 
 
@@ -12,6 +12,7 @@ from src.logging_utils import get_logger
 # Definitions
 # -------------------------
 
+ONE_TAG = '1'
 
 # -------------------------
 # Setup
@@ -24,7 +25,7 @@ from src.logging_utils import get_logger
 # ------------------------
 
 
-def fast_a_q_basename(file_name, delims={'_', '-'}):
+def fast_a_q_basename(file_name):
     """
     Find the base name of a file and determine if it is a FASTA or FASTQ file.
     Will also find the location of the R1 tag in the file name and return it.
@@ -33,7 +34,6 @@ def fast_a_q_basename(file_name, delims={'_', '-'}):
     to just before the R1 tag. Searches through a set of delimiters to find the R1 tag.
 
     :param file_name: Name of file, which does not need to be absolute.
-    :param delims: Set of possible delimiters for the base anme.
     :return: File base name, R1 location or None, file type or None.
     """
     file_basename = os.path.normpath(os.path.basename(file_name)).strip()
@@ -61,7 +61,7 @@ def fast_a_q_basename(file_name, delims={'_', '-'}):
         return None, None, None
 
     file_delim = None
-    for delim in delims:  # First, find an R1 tag in a file starting with file_base if possible
+    for delim in FAST_A_Q_DELIMS:  # First, find an R1 tag in a file starting with file_base if possible
         file_base_cols = file_basename_no_ext.split(delim)
 
         for i in range(len(file_base_cols)):
@@ -147,38 +147,78 @@ def fast_a_q_iterate(file_handle, fastq=True):
     else:
         return fasta_iterate(file_handle)
 
-def acquire_fast_a_q_files(working_dir, file1=None, file2=None, fastq=True, delims={'_', '-'}):
+def acquire_fast_a_q_files(working_dir, file1=None, file2=None, fastq=True):
     """
     Search a given working directory for either FASTQ or FASTA files.
-    The file_base is assumed to be the start of the file name itself, stripped
-    of all enclosing directories.
-    Will locate the R1 file first, and if it does, will try to find a matching R2 file.
-    If it finds any file starting with file_base but cannot find an R1 tag, it will
-    take the first such example it finds and return it as R1.
+    Applicable to: short read, consensus genome , host genome generation, long read, and phylotree-ng pipelines.
+
+    If given file1, verifies its presence, and then check for file2 if it is also not None. Get the base name
+    of the R1 file. Return a dict of just the R1 file, and if file2 is not None, the R2 file. The key will be the
+    base name.
+
+    If file1 is None, it will search the directory with the following steps:
+    1. List all files in the directory matching all extensions in the set for FASTQ or FASTQ.
+    2. For each file, get a base name with extension removed.
+    3. For each of the given delimiters, split the base name and look for an R1 tag. If found, mark the location
+    of the R1 tag.
+    4. If an R1 tag is found, look for file with a matching R2 tag by replacing the R1 tag with the R2 tag.
+    5. If a matching R2 file is found, assign it to thr R1 file
+
+    Thus, for each file, there will be thre outcome and three possible dictionary entry rypes:
+    a: {file_base: [r1_full_path, None]} - R1 file only, R1 tag found, presumed single ended, but possibly an error
+    b: file_base: [r1_full_path, None]} - R1 file only, R1 tag not found, presumed single ended
+    c: {file_base: [r1_full_path, r2_full_path]} - R1 and R2 file, paired ended
+
+    NB:
+    Files identified as R2 files without a matching R1 will be ignored.
+    Files are not expected to have more than one valid R1 or R2 tag. e.g. sample_R2_extra_R1.fastq is disallowed.
+    Only exactly matching extensions allowed. i.e. sample1_R1.fq does NOT pair with sample1_R2.fq.gz.
+    All file bases are assumed to be unique. e.g. sample_R1.fastq and sample_R1.fq in the same directory will fail.
 
     :param working_dir: Directory in which to search.
-    :param file_base:
-    :param fastq: If True, search for FASTQ files, else search for FASTA files.
-    :param delims: Sets of possible file name delimiters
+    :param file1: R1 or single-ended file, if only one file/pair specified.
+
     :return: Dict {file_base: [r1_full_path, r2_full_path], ...}, where {file_base: [r1_full_path, r2_full_path]} means paired-ended.
     """
 
     working_abspath = os.path.abspath(working_dir)
 
-    if file1 is not None:
-        if not os.path.isfile(file1):
-            get_logger().error(f"file1 is {file1} but is not a regular file")
-            return {}
-        file_base, r1_loc, file_type = fast_a_q_basename(file1, delims)
-        if file2 is not None:
-            if not os.path.isfile(file1):
-                get_logger().error(f"file2 is {file2} but is not a regular file")
-                return {}
+    if not os.path.isdir(working_abspath):
+        get_logger().error(f"Working directory {working_abspath} is not a directory")
+        return {}
 
     if fastq:
         ext_set = FASTQ_EXT_SET
     else:
         ext_set = FASTA_EXT_SET
+
+    if file1 is not None:
+        file1_ext = None
+        file_basename = os.path.normpath(os.path.basename(file1)).strip()
+        for ext in ext_set:
+            if file_basename.endswith(ext):
+                file1_ext = ext
+                break
+        if file1_ext is None:
+            get_logger().warning(f"file1 extension {file1_ext} is not recognized")
+            return {}
+
+
+        file1_path = os.path.join(working_abspath, file1)
+        if not os.path.isfile(file1_path):
+            get_logger().error(f"file1 absolute path is {file1_path} but is not a regular file")
+            return {}
+        file_base, r1_loc, file_type = fast_a_q_basename(file1)
+        if file2 is None:
+            return {file_base: [file1_path, None]}
+        else:
+            file2_path = os.path.join(working_abspath, file2)
+            if not os.path.isfile(file2_path):
+                get_logger().error(f"file2 is {file2} but is not a regular file")
+                return {}
+            return {file_base: [os.path.join(working_abspath, file1), os.path.join(working_abspath, file2)]}
+
+
 
     possible_files = [f for f in os.listdir(working_dir) if f.endswith(tuple(ext_set))]
 
@@ -189,12 +229,10 @@ def acquire_fast_a_q_files(working_dir, file1=None, file2=None, fastq=True, deli
     output_dict = {}
     added_files = set()
     for file in possible_files:
-        if file in added_files:  # Skip, especially for R2 files added below
+        if file in added_files:  # Skip, done for R2 files added below
             continue
         file_basename_no_ext = None
-        r1_file = None
-        r1_loc = None
-        file_delim = None
+
         ext_used = None
         file_basename = os.path.normpath(os.path.basename(file)).strip()
         for ext in ext_set:
@@ -203,45 +241,61 @@ def acquire_fast_a_q_files(working_dir, file1=None, file2=None, fastq=True, deli
                 file_basename_no_ext = file_basename.replace(ext, '')
                 break
 
-        if file_basename_no_ext is None:
+        if file_basename_no_ext is None:  # A file without a recognized extension is skipped
+            added_files.add(file)
             continue
 
+        best_r1_priority = float('inf')  # Lower is better, start with infinity
+        best_r1_loc = None
+        best_r1_tag = None
+        best_delim = None
+
         is_r2 = False
-        for delim in delims:  # First, find an R1 tag in a file starting with file_base if possible
+        for delim in FAST_A_Q_DELIMS:  # First, find an R1 tag in a file starting with file_base if possible
             file_base_cols = file_basename_no_ext.split(delim)
+            found_r2 = False
 
-            for i in range(len(file_base_cols)):
+            for i in range(len(file_base_cols)-1, -1, -1):  # Search the columns last to first, with R1/R2 tags tend to occur at the end
                 col = file_base_cols[i]
-
-                if col in R1_TAG_SET:
-                    r1_loc = i
-                    file_delim = delim
+                if col in R1_R2_TAGS.values():  # Check for R2 first to skip early
+                    found_r2 = True
                     break
-                elif col in R2_TAG_SET:  # Solo R2 files should be mated with r1 files or skipped
-                    is_r2 = True
+                if col in R1_R2_TAGS.keys():
+                    priority = R1_TAG_PRIORITY.get(col, 100)  # R1 tag priority search
+                    if priority < best_r1_priority:
+                        best_r1_priority = priority
+                        best_r1_loc = i
+                        best_r1_tag = col
+                        best_delim = delim
                     break
-            if r1_loc is not None:
-                break
-            if is_r2:
-                break
 
-        if is_r2:
+            if found_r2:  # Skip if R2 tag found
+                is_r2 = True
+                break
+            if best_r1_loc is not None:  # Found an R1 tag with this delimiter
+                break  # Stop at first delimiter with an R1 tag
+
+        if is_r2:  # This prevents an R2 file not yet mated with an R1 from being added to added_files and thus skipped
             continue
 
         added_files.add(file)
 
-
-        if r1_loc is None:
+        if best_r1_loc is None:  # No R1 tag found, so this is a single ended file
             output_dict[file_basename_no_ext] = [os.path.join(working_abspath, file), None]
 
         else:  # search for r2
             r1_file = file
-            sample_base_cols = file_basename_no_ext.split(file_delim)[:r1_loc]
-            sample_base = file_delim.join(sample_base_cols)
+            try:
+                r2_tag = R1_R2_TAGS[best_r1_tag]
+            except KeyError:
+                get_logger().error(f"R1 tag {best_r1_tag} not found while searching for R2. Function should not have reached this point.")
+                continue
+            sample_base_cols = file_basename_no_ext.split(best_delim)[:best_r1_loc]
+            sample_base = best_delim.join(sample_base_cols)
 
-            file_base_cols = file_basename_no_ext.split(file_delim)
-            file_base_cols[r1_loc] = R2_TAG
-            r2_file_base = file_delim.join(file_base_cols)
+            file_base_cols = file_basename_no_ext.split(best_delim)
+            file_base_cols[best_r1_loc] = R2_TAG
+            r2_file_base = best_delim.join(file_base_cols)
             r2_file_name = r2_file_base + ext_used
             if os.path.isfile(os.path.join(working_abspath, r2_file_name)):
                 output_dict[sample_base] = [os.path.join(working_abspath, file), os.path.join(working_abspath, r2_file_name)]
