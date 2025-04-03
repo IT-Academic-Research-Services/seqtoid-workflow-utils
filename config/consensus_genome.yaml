@@ -1,0 +1,11 @@
+# Pipeline-specific settings for the consensus_genome pipeline
+#samples: "sample1 sample2 sample3"
+#output_dir: "output/consensus_genome"
+
+# Resource specifications for each rule
+resources:
+  trim_with_fastp:
+    time: "04:00:00"         # Wall time in HH:MM:SS
+    mem: "8G"               # Memory (e.g., 8 GB)
+    cpus: 16                 # Number of CPUs
+    partition: "standard"   # SLURM partition (optional)
