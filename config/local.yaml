@@ -9,10 +9,16 @@ logging:
   dir: "logs/"
 resources:
   default:
-    cpus: 4                # Limited to laptop’s cores
-    mem_mb: 8000           # Limited to laptop’s RAM
+    cpus: 4
+    mem_mb: 8000
 execution:
   mode: local
   cores: 4
 #  use_conda: true
   dry_run: false
+trim_with_fastp:
+  nodes: 1
+  cpus-per-task: "{resources.cpus}"
+  mem: "{resources.mem_mb}M"
+  time: "04:00:00"
+  partition: "cpu"

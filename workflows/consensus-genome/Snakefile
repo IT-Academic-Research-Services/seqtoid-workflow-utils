@@ -2,6 +2,8 @@
 Snakefile for consensus genome workflow.
 """
 
+configfile: os.path.join(config["project_root"], "config", "consensus_genome.yaml")
+
 import os
 import json
 

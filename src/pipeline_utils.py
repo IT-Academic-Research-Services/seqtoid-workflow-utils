@@ -69,14 +69,27 @@ def run_pipeline(project_root, log_path, config_dict, config_path=None, pipeline
         "snakemake",
         "--snakefile", snakefile,
         "--config", f"project_root={project_root}", f"log_path={log_path}",
-        "--configfile", config_path
     ]
+
+    config_files = []
+    if config_path:  # e.g cluster_submit.yaml, local.yaml
+        config_files.append(str(config_path))
+    if pipeline_name:  # Add pipeline-specific config
+        pipeline_config = project_root / "config" / f"{pipeline_name}_config.yaml"
+        if pipeline_config.exists():
+            config_files.append(str(pipeline_config))
+        else:
+            get_logger().warning(f"Warning: Pipeline config {pipeline_config} not found, using only {config_path}")
+    if config_files:
+        cmd.extend(["--configfile"] + config_files)
 
     if mode == "slurm":
         cmd.extend(["--executor", "slurm"])
         cmd.extend(["--jobs", str(jobs)])
         cmd.extend(["--cores", str(cores)])  # Cores for the main process
         cmd.extend(["--latency-wait", str(latency_wait)])
+        # cmd.extend(["--cluster-config", str(cluster_config)])
+
     elif mode == "local":
         cmd.extend(["--cores", str(cores)])
     else:

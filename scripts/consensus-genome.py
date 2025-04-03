@@ -11,6 +11,7 @@ from datetime import datetime
 from src.config_utils import setup_config
 from src.logging_utils import get_logger, set_log_file
 from src.pipeline_utils import run_pipeline, common_parser
+from src.fastaq import acquire_fast_a_q_files
 
 
 # -------------------------
@@ -18,6 +19,7 @@ from src.pipeline_utils import run_pipeline, common_parser
 # -------------------------
 
 PIPELINE_NAME = "consensus-genome"
+INPUT_DIR = "data/input"
 
 
 # -------------------------
@@ -38,7 +40,8 @@ def parse_arguments():
     """
 
     parser = argparse.ArgumentParser(parents=[common_parser()])
-    parser.add_argument('-i', '-in1', '--input_fastq1', type=str, required=True, help='Path to input FASTQ file 1')
+    parser.add_argument('-i', '-in1', '--input_fastq1', type=str, required=False, help='Path to input FASTQ file 1')
+    parser.add_argument('-I', '-in2', '--input_fastq2', type=str, required=False, help='Path to input FASTQ file 2')
     return parser.parse_args()
 
 
@@ -47,6 +50,10 @@ def parse_arguments():
 # -------------------------
 
 args = parse_arguments()
+
+
+input_dict = acquire_fast_a_q_files(INPUT_DIR, args.input_fastq1, args.input_fastq2, fastq=True)
+
 config, config_path = setup_config(PROJECT_ROOT, args.config_file)
 
 if args.log_level is None:

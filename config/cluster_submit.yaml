@@ -16,7 +16,7 @@ execution:
 #  use_conda: true
   dry_run: false
   cluster_config: "config/cluster.yaml"  # Optional: SLURM-specific settings
-align_reads_step:
+trim_with_fastp:
   nodes: 1
   cpus-per-task: "{resources.cpus}"
   mem: "{resources.mem_mb}M"
