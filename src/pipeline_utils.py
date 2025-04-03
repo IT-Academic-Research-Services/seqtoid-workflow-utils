@@ -1,14 +1,14 @@
 """
 Common functions for running all pipelines.
 """
-import logging
-import os
+
 import sys
 import subprocess
 import argparse
-import snakemake
+import json
+
 from src.logging_utils import get_logger
-from src.defs import FASTQ_EXT_SET, FASTA_EXT_SET, R1_TAG_SET, R2_TAG_SET, R1_TAG, R2_TAG
+
 
 # -------------------------
 # Definitions
@@ -30,7 +30,7 @@ def common_parser():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--log-level", default=None, choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("-p", "--pipeline",
-                        help="Workflow pipeline file to run (e.g., 'consensus-genome') Defaults to the main pipeline.",
+                        help="Workflow pipeline file to run (e.g., 'consensus_genome') Defaults to the main pipeline.",
                         default=None)
     parser.add_argument("-c", "--config_file", default=None, choices=["local", "cluster", "cluster_submit"])
     parser.add_argument("--dry-run", action="store_true", help="Perform a dry run")
@@ -38,7 +38,7 @@ def common_parser():
 
     return parser
 
-def run_pipeline(project_root, log_path, config_dict, config_path=None, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
+def run_pipeline(project_root, log_path, config_dict, input_dict=None, config_path=None, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
     """
         Run a CypherID workflow.
         :param project_root: project root directory.
@@ -59,23 +59,27 @@ def run_pipeline(project_root, log_path, config_dict, config_path=None, pipeline
     # Get necessary run parameters from the config file
     execution = config_dict.get("execution", {})
     mode = execution.get("mode", "local").lower()
-    cores = execution.get("cores", 1)
+    cores = execution.get("cores", 1)  # NB: this determines number of simultaneous processes if local
     jobs = execution.get("jobs", 1)
     latency_wait = execution.get("latency_wait", 30)
     dry_run = execution.get("dry_run", False)
-    cluster_config = execution.get("cluster_config", None)
+
+    config_args = [f"project_root={project_root}", f"log_path={log_path}"]
+    if input_dict is not None:
+        input_json = json.dumps(input_dict)
+        config_args.append(f"input_dict={input_json}")
 
     cmd = [
         "snakemake",
         "--snakefile", snakefile,
-        "--config", f"project_root={project_root}", f"log_path={log_path}",
+        "--config", *config_args,
     ]
 
     config_files = []
     if config_path:  # e.g cluster_submit.yaml, local.yaml
         config_files.append(str(config_path))
     if pipeline_name:  # Add pipeline-specific config
-        pipeline_config = project_root / "config" / f"{pipeline_name}_config.yaml"
+        pipeline_config = project_root / "config" / f"{pipeline_name}.yaml"
         if pipeline_config.exists():
             config_files.append(str(pipeline_config))
         else:
@@ -88,7 +92,8 @@ def run_pipeline(project_root, log_path, config_dict, config_path=None, pipeline
         cmd.extend(["--jobs", str(jobs)])
         cmd.extend(["--cores", str(cores)])  # Cores for the main process
         cmd.extend(["--latency-wait", str(latency_wait)])
-        # cmd.extend(["--cluster-config", str(cluster_config)])
+        if "cluster_config" in execution:
+            cmd.extend(["--cluster-config", str(project_root / execution["cluster_config"])])
 
     elif mode == "local":
         cmd.extend(["--cores", str(cores)])

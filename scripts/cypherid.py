@@ -15,7 +15,7 @@ from src.pipeline_utils import run_pipeline, common_parser
 # Definitions
 # -------------------------
 
-AVAILABLE_PIPELINES = ["consensus-genome"]
+AVAILABLE_PIPELINES = ["consensus_genome"]
 
 # -------------------------
 # Setup

@@ -8,7 +8,7 @@ project_root = os.path.dirname(os.path.abspath(workflow.snakefile))
 
 fail_message = "Placeholder error message."
 
-# include: "workflows/consensus-genome/Snakefile"
+# include: "workflows/consensus_genome/Snakefile"
 
 rule all:
     input:

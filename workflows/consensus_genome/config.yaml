@@ -10,9 +10,9 @@ output_dir: "output"   # Output directory for trimmed files
 fastp_report_json: "output/fastp_report.json"  # Fastp JSON report
 
 output:
-  results: "data/output/consensus-genome.csv"  # Main output file
-  plots: "data/output/consensus-genome_plots/"         # Directory for visualization outputs
-  done_flag: "data/output/consensus-genome.done"       # Flag file to mark completion
+  results: "data/output/consensus_genome.csv"  # Main output file
+  plots: "data/output/consensus_genome_plots/"         # Directory for visualization outputs
+  done_flag: "data/output/consensus_genome.done"       # Flag file to mark completion
 
 # Genetic calculation parameters
 genetics:
@@ -21,7 +21,7 @@ genetics:
 # Logging settings
 logging:
   level: "DEBUG"              # Logging level: DEBUG, INFO, WARNING, ERROR
-  file: "logs/consensus-genome.log"  # Log file path
+  file: "logs/consensus_genome.log"  # Log file path
 
 # Cluster resource settings (used with cluster.yaml)
 resources:

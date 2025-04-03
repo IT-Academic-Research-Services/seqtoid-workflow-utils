@@ -5,11 +5,15 @@ Snakefile for consensus genome workflow.
 configfile: os.path.join(config["project_root"], "config", "consensus_genome.yaml")
 
 import os
-import json
 
 from src.defs import PROJECT_ROOT_NAME
 from src.logging_utils import get_logger, set_log_file
 
+if "input_dict" not in config:
+    raise ValueError("input_dict must be provided via --config")
+
+INPUT_DICT = config["input_dict"]
+SAMPLES = list(INPUT_DICT.keys())
 
 project_root = config.get(PROJECT_ROOT_NAME, os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
 
@@ -17,7 +21,7 @@ project_root = config.get(PROJECT_ROOT_NAME, os.path.abspath(os.path.join(os.pat
 log_path = config.get("log_path", "logs/consensus_genome.log")
 set_log_file(log_path)
 
-default_config = os.path.join(project_root, "workflows/consensus-genome/config.yaml")
+default_config = os.path.join(project_root, "workflows/consensus_genome/config.yaml")
 # noinspection PyUnresolvedReferences
 configfile_path = workflow.configfiles[0] if workflow.configfiles else default_config
 configfile: configfile_path
@@ -25,30 +29,42 @@ configfile: configfile_path
 
 fail_message = "Placeholder error message."
 
-FASTQ1 = config.get("input", {}).get("fastq1", "data/sample1_R1.fastq")
-FASTQ2 = config.get("input", {}).get("fastq2", None)  # None/null indicates single-end
 OUTPUT_DIR = config.get("output_dir", "output")
 FASTP_REPORT_JSON = config.get("fastp_report_json", "output/fastp_report.json")
 
 
-rule dump_config:
-    output:
-        "logs/config_dump.txt"  # File where the config will be written
-    run:
-        logger = get_logger(log_file=log_path)
-        logger.info("dump config")
-        with open(output[0], "w") as f:
-            f.write(json.dumps(config, indent=2))
-
-
 rule all:
     input:
-        "config_dump.txt"
+        expand("logs/{sample}.log", sample=SAMPLES)
+
+rule create_log:
+    output:
+        "logs/{sample}.log"
+    threads: 1  # Simple task, 1 thread is fine
     shell:
         """
-        echo 'Test'
-
+        touch {output}
+        echo "Created log for {wildcards.sample}" > {output}
         """
+
+# rule dump_config:
+#     output:
+#         "logs/config_dump.txt"  # File where the config will be written
+#     run:
+#         logger = get_logger(log_file=log_path)
+#         logger.info("dump config")
+#         with open(output[0], "w") as f:
+#             f.write(json.dumps(config, indent=2))
+#
+#
+# rule all:
+#     input:
+#         "config_dump.txt"
+#     shell:
+#         """
+#         echo 'Test'
+#
+#         """
     # echo'Test' > {log_path}
 # rule all:
 #     input:
@@ -56,11 +72,11 @@ rule all:
 #         f"{OUTPUT_DIR}/trimmed_R2.fastq",
 #         FASTP_REPORT_JSON
 #     output:
-#         "data/output/consensus-genome.done"
+#         "data/output/consensus_genome.done"
 #     params:
 #         max_reads = config.get("max_reads")
 #     log:
-#         "consensus-genome.log"
+#         "consensus_genome.log"
 #     shell:
 #         """
 #         echo "Processing {FASTQ1}" > {output} 2>> {log}
@@ -84,7 +100,7 @@ rule all:
 #             f"fastp -i {input.fq1} -o {output.out_fq1} --json {output.json}"
 #         )
 #     log:
-#         "consensus-genome.log"
+#         "consensus_genome.log"
 #     shell:
 #         """
 #         {params.fastp_cmd} 2> {log}

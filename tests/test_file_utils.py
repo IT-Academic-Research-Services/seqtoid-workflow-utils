@@ -10,9 +10,9 @@ from src.file_utils import read_handle, gzip_check
 # -------------------------
 
 
-TEST_BLANK = 'tests/data/consensus-genome/blank.fastq.gz'
-TEST_NO_HOST = 'tests/data/consensus-genome/no_host_1.fq.gz'
-TEST_CT20K = 'tests/data/consensus-genome/Ct20K.fastq.gz'
+TEST_BLANK = 'tests/data/consensus_genome/blank.fastq.gz'
+TEST_NO_HOST = 'tests/data/consensus_genome/no_host_1.fq.gz'
+TEST_CT20K = 'tests/data/consensus_genome/Ct20K.fastq.gz'
 TEST_LOCAL_TEXT = 'tests/data/io/hello.txt'
 TEST_LOCAL_ABSENT = 'tests/data/io/idontexist.txt'
 TEST_S3 = 's3://cypherid-public-references/hi.txt'
