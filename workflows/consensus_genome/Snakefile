@@ -37,6 +37,19 @@ rule all:
     input:
         expand("logs/{sample}.log", sample=SAMPLES)
 
+
+rule validate_input:
+    input:
+        lambda wildcards: INPUT_DICT[wildcards.sample]["R1"],
+        lambda wildcards: INPUT_DICT[wildcards.sample].get("R2", None)  # Optional R2
+    output:
+        temp("logs/{sample}_input_validated.log")
+    threads: 1  # Simple task, 1 thread is fine
+    shell:
+        """
+        echo "Validating input for {wildcards.sample}" > {output}
+        """
+
 rule create_log:
     output:
         "logs/{sample}.log"
