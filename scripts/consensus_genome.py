@@ -8,6 +8,7 @@ import argparse
 from pathlib import Path
 from datetime import datetime
 
+from src.defs import *
 from src.config_utils import setup_config
 from src.logging_utils import get_logger, set_log_file
 from src.pipeline_utils import run_pipeline, common_parser
@@ -28,8 +29,6 @@ ONT_TAG = "ont"
 # -------------------------
 # Setup
 # -------------------------
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scripts/
 
 
 # -------------------------
@@ -55,33 +54,26 @@ def parse_arguments():
 
 args = parse_arguments()
 
-
 input_dict = acquire_fast_a_q_files(INPUT_DIR, args.input_fastq1, args.input_fastq2, fastq=True)
+if input_dict is None:
+    get_logger().critical("Error: No input files found.")
+    exit(1)
 
-config, config_path = setup_config(PROJECT_ROOT, args.config_file)
+config, config_path = setup_config(args, PIPELINE_NAME)
+
 config[TECHNOLOGY_TAG] = args.technology
-
-
-if args.log_level is None:
-    log_level = getattr(logging, config.get("logging", {}).get("level", "INFO").upper())
-else:
-    log_level = getattr(logging, args.log_level.upper())
-
-log_dir = os.path.join(os.getcwd(), 'logs')
-log_date = datetime.now().strftime('%Y%m%d_%H%M%S')
-log_file = "consensus_genome_" + log_date +".log"
-log_path = os.path.join(log_dir, log_file)
-
-set_log_file(log_path)
+config[INPUT_DICT_TAG] = input_dict
 
 get_logger().info("Starting consensus genome pipeline")
 
-snakefile = PROJECT_ROOT / "workflows" / PIPELINE_NAME / "Snakefile"
+project_root = Path(config["project_root"])
+
+snakefile = project_root/ "workflows" / PIPELINE_NAME / "Snakefile"
 if not snakefile.exists():
     print(f"Error: Snakefile {snakefile} not found.")
     exit(1)
 
-run_pipeline(project_root=PROJECT_ROOT, log_path=log_path, config_dict=config, input_dict=input_dict, config_path=config_path, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
+run_pipeline(config=config, input_dict=input_dict, config_path=config_path, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
 
 get_logger().info("Finished consensus genome pipeline")
 
