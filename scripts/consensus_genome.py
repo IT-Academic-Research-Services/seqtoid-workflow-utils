@@ -20,6 +20,9 @@ from src.fastaq import acquire_fast_a_q_files
 
 PIPELINE_NAME = "consensus_genome"
 INPUT_DIR = "data/input"
+TECHNOLOGY_TAG = "technology"
+ILLUMINA_TAG = "illumina"
+ONT_TAG = "ont"
 
 
 # -------------------------
@@ -42,6 +45,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(parents=[common_parser()])
     parser.add_argument('-i', '-in1', '--input_fastq1', type=str, required=False, help='Path to input FASTQ file 1')
     parser.add_argument('-I', '-in2', '--input_fastq2', type=str, required=False, help='Path to input FASTQ file 2')
+    parser.add_argument('--technology', type=str, default=ILLUMINA_TAG, help='Sequencing tech. Options: illumina, ont')
     return parser.parse_args()
 
 
@@ -55,6 +59,8 @@ args = parse_arguments()
 input_dict = acquire_fast_a_q_files(INPUT_DIR, args.input_fastq1, args.input_fastq2, fastq=True)
 
 config, config_path = setup_config(PROJECT_ROOT, args.config_file)
+config[TECHNOLOGY_TAG] = args.technology
+
 
 if args.log_level is None:
     log_level = getattr(logging, config.get("logging", {}).get("level", "INFO").upper())
