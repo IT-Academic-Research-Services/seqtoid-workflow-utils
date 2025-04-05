@@ -6,7 +6,7 @@ configfile: os.path.join(config["project_root"], "config", "consensus_genome.yam
 
 import os
 
-from src.defs import PROJECT_ROOT_NAME
+from src.defs import PROJECT_ROOT_TAG
 from src.logging_utils import get_logger, set_log_file
 
 if "input_dict" not in config:
@@ -15,7 +15,7 @@ if "input_dict" not in config:
 INPUT_DICT = config["input_dict"]
 SAMPLES = list(INPUT_DICT.keys())
 
-project_root = config.get(PROJECT_ROOT_NAME, os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
+project_root = config.get(PROJECT_ROOT_TAG, os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
 
 
 log_path = config.get("log_path", "logs/consensus_genome.log")
