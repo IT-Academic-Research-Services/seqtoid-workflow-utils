@@ -1,0 +1,28 @@
+# Config for Kubernetes jobs on cluster.
+
+__default__:
+  kubernetes_namespace: "default"  # Default namespace for jobs
+  kubernetes_resources:
+    cpu: "{resources.cpus}"        # CPU request/limit in cores (e.g., "1", "2")
+    memory: "{resources.mem_mb}Mi" # Memory request/limit in MiB
+  time: "02:00:00"                # Max runtime (used as a timeout in Snakemake)
+  retries: 3                      # Number of retries if a job fails
+
+execution:
+  mode: kubernetes                # Use Kubernetes executor
+  jobs: 4                         # Max concurrent jobs
+  cores: 1                        # Local cores for the main Snakemake process
+  latency_wait: 60                # Time to wait for files to appear (seconds)
+#  use_conda: true                # Uncomment if you want Conda environments
+  dry_run: false                  # Set to true for a dry run
+  kubernetes_config: "config/kubernetes.yaml"  # Optional: Kubernetes-specific settings
+
+trim_with_fastp:
+  kubernetes_namespace: "bioinformatics"  # Custom namespace for this rule
+  kubernetes_resources:
+    cpu: "{resources.cpus}"        # CPU request/limit in cores
+    memory: "{resources.mem_mb}Mi" # Memory request/limit in MiB
+    # Optional: Add more resources like GPUs if needed
+    # nvidia_gpu: 1
+  time: "04:00:00"                # Longer runtime for this specific rule
+  retries: 3                      # Number of retries if the job fails
