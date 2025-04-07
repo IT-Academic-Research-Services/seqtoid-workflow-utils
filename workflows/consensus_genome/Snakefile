@@ -2,65 +2,64 @@
 Snakefile for consensus genome workflow.
 """
 
-configfile: os.path.join(config["project_root"], "config", "consensus_genome.yaml")
+import json
 
-import os
-
-from src.defs import PROJECT_ROOT_NAME
+from src.defs import PROJECT_ROOT_TAG, INPUT_DICT_TAG, LOG_PATH_TAG, FAIL_MESSAGE
 from src.logging_utils import get_logger, set_log_file
 
-if "input_dict" not in config:
+get_logger().info("Consensus genome snakefile start.")
+
+if PROJECT_ROOT_TAG not in config:
+    raise ValueError("Missing project root tag in config.")
+project_root = config[PROJECT_ROOT_TAG]
+
+if INPUT_DICT_TAG not in config:
     raise ValueError("input_dict must be provided via --config")
+input_dict = json.loads(config[INPUT_DICT_TAG])
+samples = list(input_dict.keys())
 
-INPUT_DICT = config["input_dict"]
-SAMPLES = list(INPUT_DICT.keys())
-
-project_root = config.get(PROJECT_ROOT_NAME, os.path.abspath(os.path.join(os.path.dirname(workflow.snakefile), "../..")))
-
-
-log_path = config.get("log_path", "logs/consensus_genome.log")
+log_path = config.get(LOG_PATH_TAG, "logs/consensus_genome.log")
 set_log_file(log_path)
 
-default_config = os.path.join(project_root, "workflows/consensus_genome/config.yaml")
-# noinspection PyUnresolvedReferences
-configfile_path = workflow.configfiles[0] if workflow.configfiles else default_config
-configfile: configfile_path
-
-
-fail_message = "Placeholder error message."
-
-OUTPUT_DIR = config.get("output_dir", "output")
-FASTP_REPORT_JSON = config.get("fastp_report_json", "output/fastp_report.json")
-
+output_dir = config.get("output_dir", "output")
+fastp_report_json = config.get("fastp_report_json", "output/fastp_report.json")
 
 rule all:
-    input:
-        expand("logs/{sample}.log", sample=SAMPLES)
-
-
-rule validate_input:
-    input:
-        lambda wildcards: INPUT_DICT[wildcards.sample]["R1"],
-        lambda wildcards: INPUT_DICT[wildcards.sample].get("R2", None)  # Optional R2
-    output:
-        temp("logs/{sample}_input_validated.log")
-    threads: 1  # Simple task, 1 thread is fine
-    shell:
-        """
-        echo "Validating input for {wildcards.sample}" > {output}
-        """
-
+    input: "test.log"
 rule create_log:
-    output:
-        "logs/{sample}.log"
-    threads: 1  # Simple task, 1 thread is fine
-    shell:
-        """
-        touch {output}
-        echo "Created log for {wildcards.sample}" > {output}
-        """
+    output: "test.log"
+    shell: "touch {output}"
 
-# rule dump_config:
+# rule all:
+#     input:
+#         expand("logs/{sample}.log", sample=samples)
+#
+#
+#
+# rule create_log:
+#     output:
+#         "logs/{sample}.log"
+#     threads: 1  # Simple task, 1 thread is fine
+#     shell:
+#         """
+#         touch {output}
+#         echo "Created log for {wildcards.sample}" > {output}
+#         """
+
+
+    # rule validate_input:
+    #     input:
+    #         lambda wildcards: input_dict[wildcards.sample]["R1"],
+    #         lambda wildcards: input_dict[wildcards.sample].get("R2", None)
+    #     output:
+    #         temp("logs/{sample}_input_validated.log")
+    #     threads: 1  # Simple task, 1 thread is fine
+    #     shell:
+    #         """
+    #         echo "Validating input for {wildcards.sample}" > {output}
+    #         """
+
+    # rule dump_config:
 #     output:
 #         "logs/config_dump.txt"  # File where the config will be written
 #     run:
