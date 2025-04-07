@@ -8,8 +8,10 @@ import argparse
 
 import json
 from pathlib import Path
+from typing import Sequence
 
-from snakemake.api import SnakemakeApi
+from snakemake.api import SnakemakeApi, ResourceSettings, OutputSettings, ConfigSettings, ExecutionSettings
+from snakemake.settings.types import DefaultResources
 
 from src.defs import *
 from src.logging_utils import get_logger
@@ -24,9 +26,6 @@ STANDARD_CONFIG_FILE = "config/config.yaml"
 # -------------------------
 # Setup
 # -------------------------
-
-# PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scripts/
-
 
 # -------------------------
 # Functions
@@ -49,7 +48,7 @@ def common_parser():
 
     return parser
 
-def run_pipeline(config, input_dict=None, config_path=None, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
+def run_pipeline(config, config_path=None, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
     """
         Run a CypherID workflow.
         :param project_root: project root directory.
@@ -84,10 +83,6 @@ def run_pipeline(config, input_dict=None, config_path=None, pipeline_name=None, 
     dry_run = execution.get("dry_run", False)
 
 
-    if input_dict is not None:
-        input_json = json.dumps(input_dict)
-        config['input_dict'] = input_json
-
     config_files = []
     if config_path:  # e.g cluster_submit.yaml, local.yaml
         config_files.append(str(config_path))
@@ -103,84 +98,71 @@ def run_pipeline(config, input_dict=None, config_path=None, pipeline_name=None, 
         json.dump(config, temp_config)
         temp_config_path = temp_config.name
         config_files.append(temp_config_path)
+    config_path_sequence: Sequence[Path] = [Path(s) for s in config_files]
+    config_settings = ConfigSettings(configfiles=config_path_sequence, replace_workflow_config=True)
+
+
+    default_resources = DefaultResources()
+    default_resources.cores = cores
+    default_resources.memory = execution.get("memory", 0)  # Default memory in MB
+    default_resources.cpu = execution.get("cpu", 1)
+    default_resources.threads = execution.get("threads", 1)
+    resource_settings = ResourceSettings(
+        nodes=jobs if mode == "slurm" else 1,  # Max nodes (jobs) for cluster
+        default_resources=default_resources,
+    )
+
+    execution_settings = ExecutionSettings(latency_wait=latency_wait)
 
     executor = "local" if mode == "local" else "cluster-generic" if mode == "slurm" else None
     if not executor:
         print(f"Error: Unknown execution mode '{mode}'.")
         sys.exit(1)
 
+
     try:
-        with SnakemakeApi() as snakemake_api:
-            workflow = snakemake_api.workflow(
-                snakefile=str(snakefile),
-                workdir=str(project_root),
+        with SnakemakeApi(
+                OutputSettings(
+                    verbose=False,
+                    show_failed_logs=True,
+                    dryrun=dry_run,
+                ),
 
 
+        ) as snakemake_api:
+
+            workflow_api = snakemake_api.workflow(
+                snakefile=snakefile,
+                workdir=project_root,
+                resource_settings=resource_settings,
+                config_settings=config_settings
+
             )
-            success = snakemake_api.execute(
-                workflow=workflow,
-                cores=cores,
-                nodes=jobs if executor == "cluster-generic" else None,
-                executor=executor,
-                dryrun=dry_run,
-                configfiles=config_files,
-                **kwargs
-            )
-            if not success:
-                print(f"Failed to run {pipeline_name or 'main workflow'}.")
-                sys.exit(1)
+
     except Exception as e:
-        print(f"Error during execution: {e}")
+        print(f"Error during execution: {e} type: {type(e)}")
         sys.exit(1)
     else:
-        print(f"Finished running {pipeline_name or 'main workflow'}.")
+        print(workflow_api)
 
-    print(config)
-    exit(9)
+        try:
+            dag = workflow_api.dag()
+        except Exception as e:
+            print(f"Error during execution: {e} type: {type(e)}")
+            sys.exit(1)
 
-    # cmd = [
-    #     "snakemake",
-    #     "--snakefile", snakefile,
-    #     "--config", *config_args,
-    # ]
-    #
-    # config_files = []
-    # if config_path:  # e.g cluster_submit.yaml, local.yaml
-    #     config_files.append(str(config_path))
-    # if pipeline_name:  # Add pipeline-specific config
-    #     pipeline_config = project_root / "config" / f"{pipeline_name}.yaml"
-    #     if pipeline_config.exists():
-    #         config_files.append(str(pipeline_config))
-    #     else:
-    #         get_logger().warning(f"Warning: Pipeline config {pipeline_config} not found, using only {config_path}")
-    # if config_files:
-    #     cmd.extend(["--configfile"] + config_files)
-    #
-    # if mode == "slurm":
-    #     cmd.extend(["--executor", "slurm"])
-    #     cmd.extend(["--jobs", str(jobs)])
-    #     cmd.extend(["--cores", str(cores)])  # Cores for the main process
-    #     cmd.extend(["--latency-wait", str(latency_wait)])
-    #     if "cluster_config" in execution:
-    #         cmd.extend(["--cluster-config", str(project_root / execution["cluster_config"])])
-    #
-    # elif mode == "local":
-    #     cmd.extend(["--cores", str(cores)])
-    # else:
-    #     print(f"Error: Unknown execution mode '{mode}' in config. Use 'local' or 'slurm'.")
-    #     sys.exit(1)
-    #
-    # if dry_run:
-    #     cmd.append("-n")  # Dry run
-    # for key, value in kwargs.items():
-    #     cmd.extend([f"--{key}", str(value)])
-    # if extra_args is not None:
-    #     cmd.extend(extra_args)
-    #
-    # try:
-    #     subprocess.run(cmd, shell=False, check=True)
-    # except subprocess.CalledProcessError as e:
-    #     get_logger().critical(f"Failed to run {pipeline_name}: {str(e)}")
-    #     sys.exit(1)
-    # else:
-    #     get_logger().info(f"Finished run_pipeline {pipeline_name}")
+        #
+        # success = dag.execute_workflow(
+        #     workflow=workflow_api,
+        #     cores=cores,
+        #     nodes=jobs if executor == "cluster-generic" else None,
+        #     executor=executor,
+        #     dryrun=dry_run,
+        #     configfiles=config_files,
+        #     **kwargs
+        # )
+        # if not success:
+        #     print(f"Failed to run {pipeline_name or 'main workflow'}.")
+        #     sys.exit(1)
+        # print(f"Finished running {pipeline_name or 'main workflow'}.")
+

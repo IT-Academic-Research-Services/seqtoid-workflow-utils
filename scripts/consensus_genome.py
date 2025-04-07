@@ -4,6 +4,7 @@ Consensus genome run script.
 
 import os
 import logging
+import json
 import argparse
 from pathlib import Path
 from datetime import datetime
@@ -62,7 +63,9 @@ if input_dict is None:
 config, config_path = setup_config(args, PIPELINE_NAME)
 
 config[TECHNOLOGY_TAG] = args.technology
-config[INPUT_DICT_TAG] = input_dict
+
+input_json = json.dumps(input_dict)
+config[INPUT_DICT_TAG] = input_json
 
 get_logger().info("Starting consensus genome pipeline")
 
@@ -73,7 +76,7 @@ if not snakefile.exists():
     print(f"Error: Snakefile {snakefile} not found.")
     exit(1)
 
-run_pipeline(config=config, input_dict=input_dict, config_path=config_path, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
+run_pipeline(config=config, config_path=config_path, pipeline_name=PIPELINE_NAME, dry_run=args.dry_run, extra_args=args.extra_args)
 
 get_logger().info("Finished consensus genome pipeline")
 
