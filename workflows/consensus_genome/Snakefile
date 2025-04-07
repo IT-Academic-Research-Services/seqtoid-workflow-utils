@@ -25,33 +25,41 @@ output_dir = config.get("output_dir", "output")
 fastp_report_json = config.get("fastp_report_json", "output/fastp_report.json")
 
 rule all:
-    input:
-        expand("logs/{sample}.log", sample=samples)
+    input: "test.log"
+rule create_log:
+    output: "test.log"
+    shell: "touch {output}"
 
-
-# rule validate_input:
+# rule all:
 #     input:
-#         lambda wildcards: input_dict[wildcards.sample]["R1"],
-#         lambda wildcards: input_dict[wildcards.sample].get("R2", None)
+#         expand("logs/{sample}.log", sample=samples)
+#
+#
+#
+# rule create_log:
 #     output:
-#         temp("logs/{sample}_input_validated.log")
+#         "logs/{sample}.log"
 #     threads: 1  # Simple task, 1 thread is fine
 #     shell:
 #         """
-#         echo "Validating input for {wildcards.sample}" > {output}
+#         touch {output}
+#         echo "Created log for {wildcards.sample}" > {output}
 #         """
 
-rule create_log:
-    output:
-        "logs/{sample}.log"
-    threads: 1  # Simple task, 1 thread is fine
-    shell:
-        """
-        touch {output}
-        echo "Created log for {wildcards.sample}" > {output}
-        """
 
-# rule dump_config:
+    # rule validate_input:
+    #     input:
+    #         lambda wildcards: input_dict[wildcards.sample]["R1"],
+    #         lambda wildcards: input_dict[wildcards.sample].get("R2", None)
+    #     output:
+    #         temp("logs/{sample}_input_validated.log")
+    #     threads: 1  # Simple task, 1 thread is fine
+    #     shell:
+    #         """
+    #         echo "Validating input for {wildcards.sample}" > {output}
+    #         """
+
+    # rule dump_config:
 #     output:
 #         "logs/config_dump.txt"  # File where the config will be written
 #     run:

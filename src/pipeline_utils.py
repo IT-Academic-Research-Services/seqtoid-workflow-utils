@@ -82,6 +82,8 @@ def run_pipeline(config, config_path=None, pipeline_name=None):
     jobs = execution.get("jobs", 1)
     latency_wait = execution.get("latency_wait", 30)
     dry_run = execution.get("dry_run", False)
+    kubernetes_namespace = execution.get("kubernetes_namespace", "default")
+    kubernetes_resources = execution.get("kubernetes_resources", {})  # e.g., {"cpu": "1", "memory": "4Gi"}
 
     config_files = []
     if config_path:  # e.g cluster_submit.yaml, local.yaml
@@ -107,13 +109,23 @@ def run_pipeline(config, config_path=None, pipeline_name=None):
     default_resources.cpu = execution.get("cpu", 1)
     default_resources.threads = execution.get("threads", 1)
     resource_settings = ResourceSettings(
-        nodes=jobs if mode == "slurm" else 1,  # Max nodes (jobs) for cluster
+        nodes=jobs if mode in ["slurm", "kubernetes"] else 1,
         default_resources=default_resources,
+        cores=cores,
     )
 
     execution_settings = ExecutionSettings(latency_wait=latency_wait)
 
-    executor = "local" if mode == "local" else "cluster-generic" if mode == "slurm" else None
+    if mode == "local":
+        executor = "local"
+    elif mode == "slurm":
+        executor = "cluster-generic"
+        # cluster_config = execution.get("cluster_config", {"cluster": "sbatch -p general -t 1:00:00 --mem=8G"})
+    elif mode == "kubernetes":
+        executor = "kubernetes"
+    else:
+        print(f"Error: Unknown execution mode '{mode}'. Supported: local, slurm, kubernetes")
+        sys.exit(1)
     if not executor:
         print(f"Error: Unknown execution mode '{mode}'.")
         sys.exit(1)
@@ -126,39 +138,32 @@ def run_pipeline(config, config_path=None, pipeline_name=None):
                     dryrun=dry_run,
                 ),
 
-
         ) as snakemake_api:
-
             workflow_api = snakemake_api.workflow(
                 snakefile=snakefile,
                 workdir=project_root,
                 resource_settings=resource_settings,
                 config_settings=config_settings
-
             )
 
     except Exception as e:
         print(f"Error during execution: {e} type: {type(e)}")
         sys.exit(1)
+
     else:
         try:
             dag = workflow_api.dag()
         except Exception as e:
             print(f"Error during execution: {e} type: {type(e)}")
             sys.exit(1)
+        success = dag.execute_workflow(
+            executor=executor,
+            execution_settings=execution_settings
+        )
 
-        #
-        # success = dag.execute_workflow(
-        #     workflow=workflow_api,
-        #     cores=cores,
-        #     nodes=jobs if executor == "cluster-generic" else None,
-        #     executor=executor,
-        #     dryrun=dry_run,
-        #     configfiles=config_files,
-        #     **kwargs
-        # )
-        # if not success:
-        #     print(f"Failed to run {pipeline_name or 'main workflow'}.")
-        #     sys.exit(1)
-        # print(f"Finished running {pipeline_name or 'main workflow'}.")
+        if not success:
+            get_logger().critical(f"Failed to run {pipeline_name or 'main workflow'}.")
+            sys.exit(1)
+        get_logger().info(f"Finished running {pipeline_name or 'main workflow'}.")
+
 
