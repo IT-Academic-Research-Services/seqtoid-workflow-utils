@@ -15,6 +15,7 @@ from src.pipeline_utils import run_pipeline, common_parser
 # Definitions
 # -------------------------
 
+PIPELINE_NAME = "cypherid"
 AVAILABLE_PIPELINES = ["consensus_genome"]
 
 # -------------------------
@@ -27,7 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent  # Two levels up from scri
 parser = argparse.ArgumentParser(parents=[common_parser()])  # Use common_parser() from pipeline_utils.py only
 args = parser.parse_args()
 
-config, _ = setup_config(PROJECT_ROOT, args.config_file)
+config, _ = setup_config(args, PIPELINE_NAME)
 if args.log_level is None:
     log_level = getattr(logging, config.get("logging", {}).get("level", "INFO").upper())
 else:
