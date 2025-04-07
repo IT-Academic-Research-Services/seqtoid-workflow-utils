@@ -147,23 +147,21 @@ def run_pipeline(config, config_path=None, pipeline_name=None):
             )
 
     except Exception as e:
-        print(f"Error during execution: {e} type: {type(e)}")
+        get_logger().critical(f"Error Snakemake Api setup: {e} type: {type(e)}")
         sys.exit(1)
 
-    else:
-        try:
-            dag = workflow_api.dag()
-        except Exception as e:
-            print(f"Error during execution: {e} type: {type(e)}")
-            sys.exit(1)
-        success = dag.execute_workflow(
+    try:
+        dag = workflow_api.dag()
+    except Exception as e:
+        get_logger().critical(f"Error during dag creation: {e} type: {type(e)}")
+        sys.exit(1)
+
+    try:
+        dag.execute_workflow(
             executor=executor,
             execution_settings=execution_settings
         )
-
-        if not success:
-            get_logger().critical(f"Failed to run {pipeline_name or 'main workflow'}.")
-            sys.exit(1)
-        get_logger().info(f"Finished running {pipeline_name or 'main workflow'}.")
-
+    except Exception as e:
+        get_logger().critical(f"Error during execution: {e} type: {type(e)}")
+        sys.exit(1)
 
