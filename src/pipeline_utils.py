@@ -48,16 +48,14 @@ def common_parser():
 
     return parser
 
-def run_pipeline(config, config_path=None, pipeline_name=None, dry_run=False, extra_args=None, **kwargs):
+def run_pipeline(config, config_path=None, pipeline_name=None):
     """
-        Run a CypherID workflow.
-        :param project_root: project root directory.
-        :param log_path: Absolute path to the log file.
-        :param pipeline_name: Name of the workflow file (e.g., 'workflow1.smk') or None for main Snakefile
-        :param dry_run: If True, perform a dry run (-n flag)
-        :param extra_args: Additional arguments to pass to Snakemake
-        :param kwargs: Additional Snakemake CLI arguments
-        """
+    Run a workflow.
+    :param config:
+    :param config_path:
+    :param pipeline_name:
+    :return:
+    """
 
     get_logger().info("Starting run_pipeline")
 
@@ -67,7 +65,10 @@ def run_pipeline(config, config_path=None, pipeline_name=None, dry_run=False, ex
         get_logger().critical("Error: project_root not found in config.")
         sys.exit(1)
 
-    project_root = Path(project_root)
+    project_root = Path(project_root).resolve()
+    if not project_root.exists():
+        print(f"Error: Project root directory {project_root} does not exist.")
+        sys.exit(1)
 
     snakefile = project_root / "Snakefile" if pipeline_name is None else project_root/ "workflows" / pipeline_name / "Snakefile"
     if not snakefile.exists():
@@ -81,7 +82,6 @@ def run_pipeline(config, config_path=None, pipeline_name=None, dry_run=False, ex
     jobs = execution.get("jobs", 1)
     latency_wait = execution.get("latency_wait", 30)
     dry_run = execution.get("dry_run", False)
-
 
     config_files = []
     if config_path:  # e.g cluster_submit.yaml, local.yaml
@@ -101,7 +101,6 @@ def run_pipeline(config, config_path=None, pipeline_name=None, dry_run=False, ex
     config_path_sequence: Sequence[Path] = [Path(s) for s in config_files]
     config_settings = ConfigSettings(configfiles=config_path_sequence, replace_workflow_config=True)
 
-
     default_resources = DefaultResources()
     default_resources.cores = cores
     default_resources.memory = execution.get("memory", 0)  # Default memory in MB
@@ -119,11 +118,10 @@ def run_pipeline(config, config_path=None, pipeline_name=None, dry_run=False, ex
         print(f"Error: Unknown execution mode '{mode}'.")
         sys.exit(1)
 
-
     try:
         with SnakemakeApi(
                 OutputSettings(
-                    verbose=False,
+                    verbose=True,
                     show_failed_logs=True,
                     dryrun=dry_run,
                 ),
@@ -143,8 +141,6 @@ def run_pipeline(config, config_path=None, pipeline_name=None, dry_run=False, ex
         print(f"Error during execution: {e} type: {type(e)}")
         sys.exit(1)
     else:
-        print(workflow_api)
-
         try:
             dag = workflow_api.dag()
         except Exception as e:

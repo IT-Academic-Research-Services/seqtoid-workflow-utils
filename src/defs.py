@@ -54,6 +54,9 @@ R1_TAG_PRIORITY = {
 # Pipeline definitions
 # ---------------
 
+
+FAIL_MESSAGE = "Placeholder error message."
+
 PROJECT_ROOT_TAG = 'project_root'
 LOG_PATH_TAG = 'log_path'
 INPUT_DICT_TAG = 'input_dict'
