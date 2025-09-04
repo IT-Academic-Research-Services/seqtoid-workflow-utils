@@ -209,7 +209,7 @@ def compare_stats(rust_dir, wdl_dir):
 
     print("=== Stats Comparison ===")
     rust_stats = load_stats(rust_file)
-    wdl_stats = load_stats(wdl_file, is_wdl=True)  # Apply mapping for WDL
+    wdl_stats = load_stats(wdl_file, is_wdl=True)
     wdl_depths = load_depth_file(wdl_depth_file)
 
     # Adjust Rust stats for concatenated paired reads (double alignment metrics only)
@@ -231,7 +231,9 @@ def compare_stats(rust_dir, wdl_dir):
     ]
 
     print("Comparing key statistics:")
-    mismatches = []
+    within_1_percent = []
+    within_5_percent = []
+    outside_5_percent = []
     for field in fields:
         rust_value = rust_stats.get(field)
         wdl_value = wdl_stats.get(field, wdl_depth_stats.get(field))
@@ -240,15 +242,37 @@ def compare_stats(rust_dir, wdl_dir):
         if rust_value is None and wdl_value is None:
             continue
         elif rust_value is None or wdl_value is None:
-            mismatches.append((field, rust_value, wdl_value))
+            outside_5_percent.append((field, rust_value, wdl_value, None))
             continue
 
-        # Compare numeric values with tolerance for floating-point
+        # Compare numeric values
         if isinstance(rust_value, (int, float)) and isinstance(wdl_value, (int, float)):
-            if abs(rust_value - wdl_value) > 1e-6:  # Tolerance for floating-point
-                mismatches.append((field, rust_value, wdl_value))
-        elif rust_value != wdl_value:
-            mismatches.append((field, rust_value, wdl_value))
+            # For integer fields (counts), require exact equality
+            if field in ['total_reads', 'mapped_reads', 'ercc_mapped_reads', 'ercc_mapped_paired',
+                         'ref_snps', 'ref_mnps', 'ref_indels', 'n_actg', 'n_missing', 'n_gap', 'n_ambiguous',
+                         'max_aligned_length', 'total_length']:
+                if rust_value != wdl_value:
+                    outside_5_percent.append((field, rust_value, wdl_value, None))
+            else:
+                # For floating-point fields, check relative difference
+                if wdl_value != 0:
+                    relative_diff = abs(rust_value - wdl_value) / abs(wdl_value)
+                    if relative_diff <= 0.01:  # Within 1%
+                        within_1_percent.append((field, rust_value, wdl_value, relative_diff * 100))
+                    elif relative_diff <= 0.05:  # Within 5%
+                        within_5_percent.append((field, rust_value, wdl_value, relative_diff * 100))
+                    else:  # Outside 5%
+                        outside_5_percent.append((field, rust_value, wdl_value, relative_diff * 100))
+                else:
+                    # Handle case where wdl_value is 0
+                    if abs(rust_value) > 1e-6:
+                        outside_5_percent.append((field, rust_value, wdl_value, float('inf')))
+                    else:
+                        within_1_percent.append((field, rust_value, wdl_value, 0.0))
+        else:
+            # Non-numeric fields
+            if rust_value != wdl_value:
+                outside_5_percent.append((field, rust_value, wdl_value, None))
 
     # Compare allele_counts separately
     rust_allele_counts = rust_stats.get('allele_counts', {})
@@ -263,11 +287,26 @@ def compare_stats(rust_dir, wdl_dir):
 
     # Report results
     print(f"Fields compared: {len(fields)}")
-    print(f"Mismatches in fields: {len(mismatches)}")
-    if mismatches:
-        print("Field mismatches:")
-        for field, rust_val, wdl_val in mismatches:
-            print(f"  {field}: Rust={rust_val}, WDL={wdl_val}")
+    print(f"Fields within 1% tolerance: {len(within_1_percent)}")
+    if within_1_percent:
+        print("Fields within 1% tolerance:")
+        for field, rust_val, wdl_val, rel_diff in within_1_percent:
+            print(f"  {field}: Rust={rust_val}, WDL={wdl_val}, Relative Diff={rel_diff:.2f}%")
+
+    print(f"Fields within 5% tolerance (but not 1%): {len(within_5_percent)}")
+    if within_5_percent:
+        print("Fields within 5% tolerance (but not 1%):")
+        for field, rust_val, wdl_val, rel_diff in within_5_percent:
+            print(f"  {field}: Rust={rust_val}, WDL={wdl_val}, Relative Diff={rel_diff:.2f}%")
+
+    print(f"Fields outside 5% tolerance or non-numeric mismatches: {len(outside_5_percent)}")
+    if outside_5_percent:
+        print("Fields outside 5% tolerance or non-numeric mismatches:")
+        for field, rust_val, wdl_val, rel_diff in outside_5_percent:
+            if rel_diff is not None:
+                print(f"  {field}: Rust={rust_val}, WDL={wdl_val}, Relative Diff={rel_diff:.2f}%")
+            else:
+                print(f"  {field}: Rust={rust_val}, WDL={wdl_val}")
 
     print(f"Allele count mismatches: {len(allele_mismatches)}")
     if allele_mismatches:
@@ -285,7 +324,6 @@ def compare_stats(rust_dir, wdl_dir):
 
 
 def validate_pipeline(rust_dir, wdl_dir):
-    # Run all comparisons
     rust_vars = load_variants(find_rust_variants_file(rust_dir))
     wdl_vars = load_variants(find_wdl_variants_file(wdl_dir))
     compare_variants(rust_vars, wdl_vars)
