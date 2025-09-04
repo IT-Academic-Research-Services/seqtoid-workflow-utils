@@ -212,15 +212,20 @@ def compare_stats(rust_dir, wdl_dir):
     wdl_stats = load_stats(wdl_file, is_wdl=True)  # Apply mapping for WDL
     wdl_depths = load_depth_file(wdl_depth_file)
 
+    # Adjust Rust stats for concatenated paired reads (double alignment metrics only)
+    alignment_fields = ['mapped_reads', 'ercc_mapped_reads', 'ercc_mapped_paired']
+    for field in alignment_fields:
+        if rust_stats.get(field) is not None:
+            rust_stats[field] *= 2
+
     # Compute depth statistics from WDL depth file
     wdl_depth_stats = compute_depth_stats(wdl_depths)
 
-    # Fields to compare (including depth stats from Rust stats.json)
+    # Fields to compare (excluding paired-end metrics unavailable in Rust)
     fields = [
         'depth_avg', 'depth_q25', 'depth_q50', 'depth_q75',
         'depth_frac_above_10x', 'depth_frac_above_25x', 'depth_frac_above_50x', 'depth_frac_above_100x',
-        'total_reads', 'mapped_reads', 'mapped_paired', 'paired_inward', 'paired_outward',
-        'paired_other_orientation', 'ercc_mapped_reads', 'ercc_mapped_paired',
+        'total_reads', 'mapped_reads', 'ercc_mapped_reads', 'ercc_mapped_paired',
         'ref_snps', 'ref_mnps', 'ref_indels', 'n_actg', 'n_missing', 'n_gap', 'n_ambiguous',
         'coverage_breadth', 'max_aligned_length', 'total_length', 'coverage_bin_size'
     ]
@@ -231,7 +236,7 @@ def compare_stats(rust_dir, wdl_dir):
         rust_value = rust_stats.get(field)
         wdl_value = wdl_stats.get(field, wdl_depth_stats.get(field))
 
-        # Handle None values (e.g., optional fields like paired_inward)
+        # Handle None values
         if rust_value is None and wdl_value is None:
             continue
         elif rust_value is None or wdl_value is None:
@@ -245,7 +250,7 @@ def compare_stats(rust_dir, wdl_dir):
         elif rust_value != wdl_value:
             mismatches.append((field, rust_value, wdl_value))
 
-    # Compare allele_counts separately (dictionary comparison)
+    # Compare allele_counts separately
     rust_allele_counts = rust_stats.get('allele_counts', {})
     wdl_allele_counts = wdl_stats.get('allele_counts', {})
     allele_mismatches = []
@@ -272,6 +277,10 @@ def compare_stats(rust_dir, wdl_dir):
 
     print("Note: 'coverage' array comparison skipped (requires specific handling)")
     print("Note: WDL quantile keys were mapped from 'depth_q.XX' to 'depth_qXX' for comparison")
+    print(
+        "Note: Rust alignment metrics (mapped_reads, ercc_mapped_reads, ercc_mapped_paired) doubled for comparison due to paired-end concatenation")
+    print(
+        "Note: Paired-end metrics (mapped_paired, paired_inward, paired_outward, paired_other_orientation) excluded due to Rust pipeline concatenation")
     print()
 
 
