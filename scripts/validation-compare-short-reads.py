@@ -2,7 +2,9 @@ import pandas as pd
 import os
 import glob
 import numpy as np
+import json
 from typing import List, Dict
+from scipy.sparse import coo_matrix
 
 # Define paths to the directories
 CZID_DIR = 'czid'
@@ -52,26 +54,18 @@ def compare_numeric_dfs(
         atol: float = 0.005,
         wide_matrix: bool = False
 ) -> str:
-    """
-    Compare numeric columns of two dataframes (assumed same shape/order after sorting).
-    Returns a summary string describing the differences.
-    """
-    # Identify numeric columns
+    """Compare numeric columns of two dataframes with tolerance."""
     num_cols = df1.select_dtypes(include=[np.number]).columns.intersection(df2.columns)
-
     if len(num_cols) == 0:
         return "No numeric columns to compare"
 
     results = {}
-    max_diffs = {}
     for col in num_cols:
         vals1 = df1[col].fillna(0).values.astype(float)
         vals2 = df2[col].fillna(0).values.astype(float)
         cat = numeric_diff(vals1, vals2, atol=atol)
         results[col] = cat
-        max_diffs[col] = np.abs(vals1 - vals2).max()
 
-    # Summarize
     categories = list(results.values())
     if all("identical" in c or "equivalent" in c for c in categories):
         return "Numerically equivalent within tolerance (≤ 0.005)"
@@ -81,28 +75,9 @@ def compare_numeric_dfs(
     sig_cols = [col for col, cat in results.items() if "significant" in cat]
 
     if warning_cols:
-        summary_lines.append(f"Minor differences (0.005–0.05) in {len(warning_cols)} column(s): {', '.join(warning_cols[:3])}")
+        summary_lines.append(f"Minor differences (0.005–0.05) in {len(warning_cols)} column(s)")
     if sig_cols:
-        summary_lines.append(f"Significant differences (>0.05) in {len(sig_cols)} column(s): {', '.join(sig_cols[:3])}")
-
-    # For wide matrices (Step 4), add cell-level info
-    if wide_matrix and 'Taxon Name' in df1.columns:
-        # Assume first column is Taxon Name, rest are samples
-        sample_cols = [c for c in df1.columns if c != 'Taxon Name']
-        cell_diffs = []
-        for col in sample_cols:
-            vals1 = df1[col].fillna(0).astype(float)
-            vals2 = df2[col].fillna(0).astype(float)
-            diff = np.abs(vals1 - vals2)
-            max_per_sample = diff.max()
-            if max_per_sample > 0.05:
-                cell_diffs.append((col, max_per_sample, (diff > 0.05).sum()))
-        if cell_diffs:
-            cell_summary = "\n".join(
-                f"  Sample {s}: max diff {d:.4f}, {n} cells >0.05"
-                for s, d, n in sorted(cell_diffs, key=lambda x: x[1], reverse=True)[:5]
-            )
-            summary_lines.append(f"Across samples:\n{cell_summary}")
+        summary_lines.append(f"Significant differences (>0.05) in {len(sig_cols)} column(s)")
 
     if not summary_lines:
         return "Only minor floating-point noise detected"
@@ -111,7 +86,7 @@ def compare_numeric_dfs(
 
 
 # ────────────────────────────────────────────────────────────────
-# Comparison functions
+# Comparison functions (Steps 1–6)
 # ────────────────────────────────────────────────────────────────
 
 def compare_metadata():
@@ -134,9 +109,7 @@ def compare_metadata():
         print("  - Files are identical.")
     else:
         print("  - Files differ (strict comparison failed).")
-        # Could add tolerant check here for numeric columns if desired, but keeping strict for now
 
-    # Missing/extra samples check (unchanged)
     for name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
         actual = set(df['sample_name'].astype(str))
         expected = set(EXPECTED_SAMPLES)
@@ -182,10 +155,8 @@ def compare_taxon_reports():
         seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}_*_taxon_report.csv"))
 
         if len(czid_files) != 1 or len(seqtoid_files) != 1:
-            if len(czid_files) != 1:
-                missing_czid.append(sample)
-            if len(seqtoid_files) != 1:
-                missing_seqtoid.append(sample)
+            if len(czid_files) != 1: missing_czid.append(sample)
+            if len(seqtoid_files) != 1: missing_seqtoid.append(sample)
             continue
 
         czid_df = pd.read_csv(czid_files[0], dtype=str)
@@ -238,8 +209,6 @@ def compare_combined_taxon_results():
 
 def compare_contig_summary_reports():
     print("Comparing per-sample contig_summary_report.csv files...")
-    # (kept strict for now – mostly IDs + some numerics, but can be extended later)
-    # Implementation unchanged from previous version
     missing_czid = []
     missing_seqtoid = []
 
@@ -304,6 +273,108 @@ def compare_host_gene_counts():
         print(f"  Missing in seqtoid: {', '.join(missing_seqtoid)}")
 
 
+# ────────────────────────────────────────────────────────────────
+# Step 7: Combined Microbiome File (BIOM) with sparse matrix diff
+# ────────────────────────────────────────────────────────────────
+
+def compare_combined_microbiome():
+    biom_file = 'Combined Microbiome File.biom'  # adjust filename if different
+
+    czid_path = os.path.join(CZID_DIR, biom_file)
+    seqtoid_path = os.path.join(SEQTOID_DIR, biom_file)
+
+    if not os.path.exists(czid_path):
+        print(f"Error: {czid_path} not found.")
+        return
+    if not os.path.exists(seqtoid_path):
+        print(f"Error: {seqtoid_path} not found.")
+        return
+
+    with open(czid_path, 'r') as f:
+        czid_biom = json.load(f)
+    with open(seqtoid_path, 'r') as f:
+        seqtoid_biom = json.load(f)
+
+    print("Comparing Combined Microbiome File.biom...")
+
+    # Basic structure check
+    keys_match = czid_biom.keys() == seqtoid_biom.keys()
+    shape_match = czid_biom.get('shape') == seqtoid_biom.get('shape')
+    matrix_type_match = czid_biom.get('matrix_type') == seqtoid_biom.get('matrix_type')
+
+    if not (keys_match and shape_match and matrix_type_match):
+        print("  - Basic structure differs:")
+        if not keys_match: print("    Different top-level keys")
+        if not shape_match: print(f"    Shape: czid {czid_biom.get('shape')}, seqtoid {seqtoid_biom.get('shape')}")
+        if not matrix_type_match: print("    Matrix type differs")
+        return
+
+    print(f"  - Shape: {czid_biom['shape']} (rows=features/taxa, cols=samples)")
+
+    # Rows (taxa)
+    czid_rows = sorted(czid_biom['rows'], key=lambda x: x['id'])
+    seqtoid_rows = sorted(seqtoid_biom['rows'], key=lambda x: x['id'])
+    print(f"  - Taxa/rows: {'identical' if czid_rows == seqtoid_rows else 'differ'}")
+
+    # Columns (samples)
+    czid_cols = sorted(czid_biom['columns'], key=lambda x: x['id'])
+    seqtoid_cols = sorted(seqtoid_biom['columns'], key=lambda x: x['id'])
+    print(f"  - Samples/columns: {'identical' if czid_cols == seqtoid_cols else 'differ'}")
+
+    # Sample name check (strip serial)
+    czid_sample_ids = {col['id'].split(':')[0] for col in czid_biom['columns']}
+    seqtoid_sample_ids = {col['id'].split(':')[0] for col in seqtoid_biom['columns']}
+    expected_set = set(EXPECTED_SAMPLES)
+    for name, actual in [('czid', czid_sample_ids), ('seqtoid', seqtoid_sample_ids)]:
+        missing = expected_set - actual
+        extra = actual - expected_set
+        if missing:
+            print(f"  - Missing samples in {name}: {', '.join(sorted(missing))}")
+        if extra:
+            print(f"  - Extra samples in {name}: {', '.join(sorted(extra))}")
+
+    # Sparse data with coo_matrix
+    czid_data = sorted(czid_biom['data'], key=lambda x: (x[0], x[1]))
+    seqtoid_data = sorted(seqtoid_biom['data'], key=lambda x: (x[0], x[1]))
+
+    if len(czid_data) != len(seqtoid_data):
+        print(f"  - Non-zero count differs: czid {len(czid_data)}, seqtoid {len(seqtoid_data)}")
+        return
+
+    czid_pos = [(x[0], x[1]) for x in czid_data]
+    seqtoid_pos = [(x[0], x[1]) for x in seqtoid_data]
+
+    if czid_pos != seqtoid_pos:
+        print("  - Sparsity pattern differs (different positions have non-zero values)")
+        return
+
+    czid_values = np.array([x[2] for x in czid_data], dtype=float)
+    seqtoid_values = np.array([x[2] for x in seqtoid_data], dtype=float)
+
+    print("  - Sparse positions match → comparing abundance values...")
+    cat = numeric_diff(czid_values, seqtoid_values)
+    print(f"    → {cat}")
+
+    # Build sparse matrices for extra validation
+    shape = tuple(czid_biom['shape'])
+    czid_sparse = coo_matrix(
+        (czid_values, (np.array([x[0] for x in czid_data]), np.array([x[1] for x in czid_data]))),
+        shape=shape
+    )
+    seqtoid_sparse = coo_matrix(
+        (seqtoid_values, (np.array([x[0] for x in seqtoid_data]), np.array([x[1] for x in seqtoid_data]))),
+        shape=shape
+    )
+
+    max_abs_diff = np.abs(czid_sparse.data - seqtoid_sparse.data).max()
+    mean_abs_diff = np.abs(czid_sparse.data - seqtoid_sparse.data).mean()
+    nz_count = len(czid_sparse.data)
+
+    print(f"    Non-zero elements: {nz_count}")
+    print(f"    Max absolute difference: {max_abs_diff:.6f}")
+    print(f"    Mean absolute difference: {mean_abs_diff:.6f}")
+
+
 def main():
     print("Starting CZID pipeline output comparison...\n")
 
@@ -324,6 +395,9 @@ def main():
 
     print("\n=== Step 6: Sample Host Gene Counts Comparison ===")
     compare_host_gene_counts()
+
+    print("\n=== Step 7: Combined Microbiome File (BIOM) Comparison ===")
+    compare_combined_microbiome()
 
     print("\nComparison complete.")
 
