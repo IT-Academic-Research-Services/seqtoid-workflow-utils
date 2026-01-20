@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import glob
 from typing import List, Dict
 
 # Define paths to the directories
@@ -147,6 +148,77 @@ def compare_overviews():
         if extra:
             print(f"  - Extra samples in {df_name}: {', '.join(sorted(extra))}")
 
+def compare_taxon_reports():
+    """
+    Step 3: Compare per-sample taxon_report.csv files from czid and seqtoid directories.
+    - For each expected sample, finds files matching {sample}_*_taxon_report.csv using glob.
+    - Assumes exactly one file per sample per directory.
+    - Loads the CSVs using pandas.
+    - Sorts by 'tax_id' (which can be negative) to handle potential order differences.
+    - Checks for exact equality per sample.
+    - If not equal, computes and prints differences.
+    - Reports missing files for samples.
+    """
+    print("Comparing per-sample taxon_report.csv files...")
+
+    missing_in_czid = []
+    missing_in_seqtoid = []
+
+    for sample in EXPECTED_SAMPLES:
+        # Find files in czid
+        czid_pattern = os.path.join(CZID_DIR, f"{sample}_*_taxon_report.csv")
+        czid_files = glob.glob(czid_pattern)
+        if len(czid_files) != 1:
+            print(f"  - For sample {sample} in czid: {'No file found' if len(czid_files) == 0 else 'Multiple files found'}")
+            missing_in_czid.append(sample)
+            continue
+        czid_path = czid_files[0]
+
+        # Find files in seqtoid
+        seqtoid_pattern = os.path.join(SEQTOID_DIR, f"{sample}_*_taxon_report.csv")
+        seqtoid_files = glob.glob(seqtoid_pattern)
+        if len(seqtoid_files) != 1:
+            print(f"  - For sample {sample} in seqtoid: {'No file found' if len(seqtoid_files) == 0 else 'Multiple files found'}")
+            missing_in_seqtoid.append(sample)
+            continue
+        seqtoid_path = seqtoid_files[0]
+
+        # Read CSVs, allowing for mixed types
+        czid_df = pd.read_csv(czid_path, dtype=str)
+        seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
+
+        # Sort by tax_id for comparison (convert to int for proper sorting, including negatives)
+        czid_df['tax_id'] = pd.to_numeric(czid_df['tax_id'], errors='coerce')
+        seqtoid_df['tax_id'] = pd.to_numeric(seqtoid_df['tax_id'], errors='coerce')
+        czid_df_sorted = czid_df.sort_values('tax_id').reset_index(drop=True)
+        seqtoid_df_sorted = seqtoid_df.sort_values('tax_id').reset_index(drop=True)
+
+        # Convert back to str for comparison if needed, but since dtype=str initially, and equals handles it
+        print(f"  - Comparing for sample {sample}...")
+
+        if czid_df_sorted.equals(seqtoid_df_sorted):
+            print("    - Taxon report files are identical.")
+        else:
+            print("    - Taxon report files differ.")
+            # Compute differences
+            diff = czid_df_sorted.compare(seqtoid_df_sorted)
+            if not diff.empty:
+                print("      Differences (czid vs seqtoid):")
+                print(diff)
+            else:
+                print("      Differences in structure (e.g., row count or columns).")
+                if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
+                    print("        Column mismatch:")
+                    print(f"          czid: {czid_df_sorted.columns}")
+                    print(f"          seqtoid: {seqtoid_df_sorted.columns}")
+                if len(czid_df_sorted) != len(seqtoid_df_sorted):
+                    print(f"        Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+
+    if missing_in_czid:
+        print(f"  - Missing taxon reports in czid for samples: {', '.join(missing_in_czid)}")
+    if missing_in_seqtoid:
+        print(f"  - Missing taxon reports in seqtoid for samples: {', '.join(missing_in_seqtoid)}")
+
 def main():
     """
     Main entry point for the comparison script.
@@ -161,9 +233,12 @@ def main():
     print("\n=== Step 2: Sample Overviews Comparison ===")
     compare_overviews()
 
+    print("\n=== Step 3: Sample Taxon Reports Comparison ===")
+    compare_taxon_reports()
+
     # Placeholder for future steps
-    # print("\n=== Step 3: Next Output Comparison (e.g., alignments) ===")
-    # compare_alignments()
+    # print("\n=== Step 4: Next Output Comparison ===")
+    # compare_next()
 
     # Add more steps as needed...
 
