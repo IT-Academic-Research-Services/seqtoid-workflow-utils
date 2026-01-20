@@ -294,6 +294,74 @@ def compare_combined_taxon_results():
         if extra:
             print(f"  - Extra sample columns in {df_name}: {', '.join(sorted(extra))}")
 
+def compare_contig_summary_reports():
+    """
+    Step 5: Compare per-sample contig_summary_report.csv files from czid and seqtoid directories.
+    - For each expected sample, finds files matching {sample}_*_contig_summary_report.csv using glob.
+    - Assumes exactly one file per sample per directory.
+    - Loads the CSVs using pandas.
+    - Sorts by 'contig_name' to handle potential order differences.
+    - Checks for exact equality per sample.
+    - If not equal, computes and prints differences.
+    - Reports missing files for samples.
+    """
+    print("Comparing per-sample contig_summary_report.csv files...")
+
+    missing_in_czid = []
+    missing_in_seqtoid = []
+
+    for sample in EXPECTED_SAMPLES:
+        # Find files in czid
+        czid_pattern = os.path.join(CZID_DIR, f"{sample}_*_contig_summary_report.csv")
+        czid_files = glob.glob(czid_pattern)
+        if len(czid_files) != 1:
+            print(f"  - For sample {sample} in czid: {'No file found' if len(czid_files) == 0 else 'Multiple files found'}")
+            missing_in_czid.append(sample)
+            continue
+        czid_path = czid_files[0]
+
+        # Find files in seqtoid
+        seqtoid_pattern = os.path.join(SEQTOID_DIR, f"{sample}_*_contig_summary_report.csv")
+        seqtoid_files = glob.glob(seqtoid_pattern)
+        if len(seqtoid_files) != 1:
+            print(f"  - For sample {sample} in seqtoid: {'No file found' if len(seqtoid_files) == 0 else 'Multiple files found'}")
+            missing_in_seqtoid.append(sample)
+            continue
+        seqtoid_path = seqtoid_files[0]
+
+        # Read CSVs, allowing for mixed types
+        czid_df = pd.read_csv(czid_path, dtype=str)
+        seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
+
+        # Sort by contig_name for comparison
+        czid_df_sorted = czid_df.sort_values('contig_name').reset_index(drop=True)
+        seqtoid_df_sorted = seqtoid_df.sort_values('contig_name').reset_index(drop=True)
+
+        print(f"  - Comparing for sample {sample}...")
+
+        if czid_df_sorted.equals(seqtoid_df_sorted):
+            print("    - Contig summary report files are identical.")
+        else:
+            print("    - Contig summary report files differ.")
+            # Compute differences
+            diff = czid_df_sorted.compare(seqtoid_df_sorted)
+            if not diff.empty:
+                print("      Differences (czid vs seqtoid):")
+                print(diff)
+            else:
+                print("      Differences in structure (e.g., row count or columns).")
+                if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
+                    print("        Column mismatch:")
+                    print(f"          czid: {czid_df_sorted.columns}")
+                    print(f"          seqtoid: {seqtoid_df_sorted.columns}")
+                if len(czid_df_sorted) != len(seqtoid_df_sorted):
+                    print(f"        Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+
+    if missing_in_czid:
+        print(f"  - Missing contig summary reports in czid for samples: {', '.join(missing_in_czid)}")
+    if missing_in_seqtoid:
+        print(f"  - Missing contig summary reports in seqtoid for samples: {', '.join(missing_in_seqtoid)}")
+
 def main():
     """
     Main entry point for the comparison script.
@@ -314,8 +382,11 @@ def main():
     print("\n=== Step 4: Combined Sample Taxon Results Comparison ===")
     compare_combined_taxon_results()
 
+    print("\n=== Step 5: Sample Contig Summary Reports Comparison ===")
+    compare_contig_summary_reports()
+
     # Placeholder for future steps
-    # print("\n=== Step 5: Next Output Comparison ===")
+    # print("\n=== Step 6: Next Output Comparison ===")
     # compare_next()
 
     # Add more steps as needed...
