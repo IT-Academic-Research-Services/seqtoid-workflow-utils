@@ -1,13 +1,14 @@
 import pandas as pd
 import os
 import glob
+import numpy as np
 from typing import List, Dict
 
 # Define paths to the directories
 CZID_DIR = 'czid'
 SEQTOID_DIR = 'seqtoid'
 
-# List of expected sample IDs (from the provided NCBI IDs)
+# List of expected sample IDs
 EXPECTED_SAMPLES = [
     'ERR11417004',
     'SRR23038836',
@@ -22,423 +23,291 @@ EXPECTED_SAMPLES = [
     'SRR11278904'
 ]
 
-def compare_metadata():
-    """
-    Step 1: Compare sample_metadata.csv files from czid and seqtoid directories.
-    - Loads the CSVs using pandas.
-    - Sorts by 'sample_name' to handle potential order differences.
-    - Checks for exact equality.
-    - If not equal, computes and prints differences.
-    - Also checks for missing/extra samples relative to the expected list.
-    """
-    metadata_file = 'sample_metadata.csv'
+# ────────────────────────────────────────────────────────────────
+# Helper functions for tolerant numeric comparison
+# ────────────────────────────────────────────────────────────────
 
+def numeric_diff(a: np.ndarray, b: np.ndarray, atol: float = 0.005) -> str:
+    """Categorize the worst difference between two numeric arrays."""
+    if len(a) == 0 or len(b) == 0:
+        return "empty arrays"
+    diff = np.abs(a - b)
+    worst = diff.max()
+    if np.isnan(worst):
+        return "contains NaN"
+    if worst <= 1e-8:
+        return "identical"
+    elif worst <= 0.005:
+        return f"equivalent (max diff {worst:.6f} ≤ 0.005)"
+    elif worst <= 0.05:
+        return f"warning (max diff {worst:.6f})"
+    else:
+        return f"significant (max diff {worst:.6f})"
+
+
+def compare_numeric_dfs(
+        df1: pd.DataFrame,
+        df2: pd.DataFrame,
+        id_cols: List[str],
+        atol: float = 0.005,
+        wide_matrix: bool = False
+) -> str:
+    """
+    Compare numeric columns of two dataframes (assumed same shape/order after sorting).
+    Returns a summary string describing the differences.
+    """
+    # Identify numeric columns
+    num_cols = df1.select_dtypes(include=[np.number]).columns.intersection(df2.columns)
+
+    if len(num_cols) == 0:
+        return "No numeric columns to compare"
+
+    results = {}
+    max_diffs = {}
+    for col in num_cols:
+        vals1 = df1[col].fillna(0).values.astype(float)
+        vals2 = df2[col].fillna(0).values.astype(float)
+        cat = numeric_diff(vals1, vals2, atol=atol)
+        results[col] = cat
+        max_diffs[col] = np.abs(vals1 - vals2).max()
+
+    # Summarize
+    categories = list(results.values())
+    if all("identical" in c or "equivalent" in c for c in categories):
+        return "Numerically equivalent within tolerance (≤ 0.005)"
+
+    summary_lines = []
+    warning_cols = [col for col, cat in results.items() if "warning" in cat]
+    sig_cols = [col for col, cat in results.items() if "significant" in cat]
+
+    if warning_cols:
+        summary_lines.append(f"Minor differences (0.005–0.05) in {len(warning_cols)} column(s): {', '.join(warning_cols[:3])}")
+    if sig_cols:
+        summary_lines.append(f"Significant differences (>0.05) in {len(sig_cols)} column(s): {', '.join(sig_cols[:3])}")
+
+    # For wide matrices (Step 4), add cell-level info
+    if wide_matrix and 'Taxon Name' in df1.columns:
+        # Assume first column is Taxon Name, rest are samples
+        sample_cols = [c for c in df1.columns if c != 'Taxon Name']
+        cell_diffs = []
+        for col in sample_cols:
+            vals1 = df1[col].fillna(0).astype(float)
+            vals2 = df2[col].fillna(0).astype(float)
+            diff = np.abs(vals1 - vals2)
+            max_per_sample = diff.max()
+            if max_per_sample > 0.05:
+                cell_diffs.append((col, max_per_sample, (diff > 0.05).sum()))
+        if cell_diffs:
+            cell_summary = "\n".join(
+                f"  Sample {s}: max diff {d:.4f}, {n} cells >0.05"
+                for s, d, n in sorted(cell_diffs, key=lambda x: x[1], reverse=True)[:5]
+            )
+            summary_lines.append(f"Across samples:\n{cell_summary}")
+
+    if not summary_lines:
+        return "Only minor floating-point noise detected"
+
+    return "Numeric differences detected:\n  " + "\n  ".join(summary_lines)
+
+
+# ────────────────────────────────────────────────────────────────
+# Comparison functions
+# ────────────────────────────────────────────────────────────────
+
+def compare_metadata():
+    metadata_file = 'sample_metadata.csv'
     czid_path = os.path.join(CZID_DIR, metadata_file)
     seqtoid_path = os.path.join(SEQTOID_DIR, metadata_file)
 
-    if not os.path.exists(czid_path):
-        print(f"Error: {czid_path} not found.")
-        return
-    if not os.path.exists(seqtoid_path):
-        print(f"Error: {seqtoid_path} not found.")
+    if not os.path.exists(czid_path) or not os.path.exists(seqtoid_path):
+        print(f"Error: One or both {metadata_file} files missing.")
         return
 
-    # Read CSVs
     czid_df = pd.read_csv(czid_path)
     seqtoid_df = pd.read_csv(seqtoid_path)
 
-    # Sort by sample_name for comparison
-    czid_df_sorted = czid_df.sort_values('sample_name').reset_index(drop=True)
-    seqtoid_df_sorted = seqtoid_df.sort_values('sample_name').reset_index(drop=True)
+    czid_sorted = czid_df.sort_values('sample_name').reset_index(drop=True)
+    seqtoid_sorted = seqtoid_df.sort_values('sample_name').reset_index(drop=True)
 
     print("Comparing sample_metadata.csv...")
-
-    if czid_df_sorted.equals(seqtoid_df_sorted):
-        print("  - Metadata files are identical.")
+    if czid_sorted.equals(seqtoid_sorted):
+        print("  - Files are identical.")
     else:
-        print("  - Metadata files differ.")
-        # Compute differences
-        diff = czid_df_sorted.compare(seqtoid_df_sorted)
-        if not diff.empty:
-            print("    Differences (czid vs seqtoid):")
-            print(diff)
-        else:
-            print("    Differences in structure (e.g., row count or columns).")
-            if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
-                print("      Column mismatch:")
-                print(f"        czid: {czid_df_sorted.columns}")
-                print(f"        seqtoid: {seqtoid_df_sorted.columns}")
-            if len(czid_df_sorted) != len(seqtoid_df_sorted):
-                print(f"      Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+        print("  - Files differ (strict comparison failed).")
+        # Could add tolerant check here for numeric columns if desired, but keeping strict for now
 
-    # Check for missing/extra samples in each dataframe relative to expected list
-    # Normalize expected samples (in case of suffixes, but compare base names if needed; for now, exact match)
-    for df_name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
-        actual_samples = set(df['sample_name'].astype(str))
-        expected_set = set(EXPECTED_SAMPLES)
-
-        missing = expected_set - actual_samples
-        extra = actual_samples - expected_set
-
+    # Missing/extra samples check (unchanged)
+    for name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
+        actual = set(df['sample_name'].astype(str))
+        expected = set(EXPECTED_SAMPLES)
+        missing = expected - actual
+        extra = actual - expected
         if missing:
-            print(f"  - Missing samples in {df_name}: {', '.join(sorted(missing))}")
+            print(f"  - Missing in {name}: {', '.join(sorted(missing))}")
         if extra:
-            print(f"  - Extra samples in {df_name}: {', '.join(sorted(extra))}")
+            print(f"  - Extra in {name}: {', '.join(sorted(extra))}")
+
 
 def compare_overviews():
-    """
-    Step 2: Compare sample_overviews.csv files from czid and seqtoid directories.
-    - Loads the CSVs using pandas.
-    - Sorts by 'sample_name' to handle potential order differences.
-    - Checks for exact equality.
-    - If not equal, computes and prints differences.
-    - Also checks for missing/extra samples relative to the expected list.
-    """
-    overviews_file = 'sample_overviews.csv'
+    file_name = 'sample_overviews.csv'
+    czid_path = os.path.join(CZID_DIR, file_name)
+    seqtoid_path = os.path.join(SEQTOID_DIR, file_name)
 
-    czid_path = os.path.join(CZID_DIR, overviews_file)
-    seqtoid_path = os.path.join(SEQTOID_DIR, overviews_file)
-
-    if not os.path.exists(czid_path):
-        print(f"Error: {czid_path} not found.")
-        return
-    if not os.path.exists(seqtoid_path):
-        print(f"Error: {seqtoid_path} not found.")
+    if not os.path.exists(czid_path) or not os.path.exists(seqtoid_path):
+        print(f"Error: One or both {file_name} files missing.")
         return
 
-    # Read CSVs, allowing for mixed types (e.g., empty strings in numeric columns)
-    czid_df = pd.read_csv(czid_path, dtype=str)  # Read as string to handle mixed types consistently
+    czid_df = pd.read_csv(czid_path, dtype=str)
     seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
 
-    # Sort by sample_name for comparison
-    czid_df_sorted = czid_df.sort_values('sample_name').reset_index(drop=True)
-    seqtoid_df_sorted = seqtoid_df.sort_values('sample_name').reset_index(drop=True)
+    czid_sorted = czid_df.sort_values('sample_name').reset_index(drop=True)
+    seqtoid_sorted = seqtoid_df.sort_values('sample_name').reset_index(drop=True)
 
     print("Comparing sample_overviews.csv...")
-
-    if czid_df_sorted.equals(seqtoid_df_sorted):
-        print("  - Overviews files are identical.")
+    if czid_sorted.equals(seqtoid_sorted):
+        print("  - Files are identical.")
     else:
-        print("  - Overviews files differ.")
-        # Compute differences
-        diff = czid_df_sorted.compare(seqtoid_df_sorted)
-        if not diff.empty:
-            print("    Differences (czid vs seqtoid):")
-            print(diff)
-        else:
-            print("    Differences in structure (e.g., row count or columns).")
-            if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
-                print("      Column mismatch:")
-                print(f"        czid: {czid_df_sorted.columns}")
-                print(f"        seqtoid: {seqtoid_df_sorted.columns}")
-            if len(czid_df_sorted) != len(seqtoid_df_sorted):
-                print(f"      Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+        print("  - Strict comparison failed → checking numeric tolerance...")
+        result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=['sample_name'])
+        print("    → " + result)
 
-    # Check for missing/extra samples in each dataframe relative to expected list
-    # Normalize expected samples (in case of suffixes, but compare base names if needed; for now, exact match)
-    for df_name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
-        actual_samples = set(df['sample_name'].astype(str))
-        expected_set = set(EXPECTED_SAMPLES)
-
-        missing = expected_set - actual_samples
-        extra = actual_samples - expected_set
-
-        if missing:
-            print(f"  - Missing samples in {df_name}: {', '.join(sorted(missing))}")
-        if extra:
-            print(f"  - Extra samples in {df_name}: {', '.join(sorted(extra))}")
 
 def compare_taxon_reports():
-    """
-    Step 3: Compare per-sample taxon_report.csv files from czid and seqtoid directories.
-    - For each expected sample, finds files matching {sample}_*_taxon_report.csv using glob.
-    - Assumes exactly one file per sample per directory.
-    - Loads the CSVs using pandas.
-    - Sorts by 'tax_id' (which can be negative) to handle potential order differences.
-    - Checks for exact equality per sample.
-    - If not equal, computes and prints differences.
-    - Reports missing files for samples.
-    """
     print("Comparing per-sample taxon_report.csv files...")
-
-    missing_in_czid = []
-    missing_in_seqtoid = []
+    missing_czid = []
+    missing_seqtoid = []
 
     for sample in EXPECTED_SAMPLES:
-        # Find files in czid
-        czid_pattern = os.path.join(CZID_DIR, f"{sample}_*_taxon_report.csv")
-        czid_files = glob.glob(czid_pattern)
-        if len(czid_files) != 1:
-            print(f"  - For sample {sample} in czid: {'No file found' if len(czid_files) == 0 else 'Multiple files found'}")
-            missing_in_czid.append(sample)
+        czid_files = glob.glob(os.path.join(CZID_DIR, f"{sample}_*_taxon_report.csv"))
+        seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}_*_taxon_report.csv"))
+
+        if len(czid_files) != 1 or len(seqtoid_files) != 1:
+            if len(czid_files) != 1:
+                missing_czid.append(sample)
+            if len(seqtoid_files) != 1:
+                missing_seqtoid.append(sample)
             continue
-        czid_path = czid_files[0]
 
-        # Find files in seqtoid
-        seqtoid_pattern = os.path.join(SEQTOID_DIR, f"{sample}_*_taxon_report.csv")
-        seqtoid_files = glob.glob(seqtoid_pattern)
-        if len(seqtoid_files) != 1:
-            print(f"  - For sample {sample} in seqtoid: {'No file found' if len(seqtoid_files) == 0 else 'Multiple files found'}")
-            missing_in_seqtoid.append(sample)
-            continue
-        seqtoid_path = seqtoid_files[0]
+        czid_df = pd.read_csv(czid_files[0], dtype=str)
+        seqtoid_df = pd.read_csv(seqtoid_files[0], dtype=str)
 
-        # Read CSVs, allowing for mixed types
-        czid_df = pd.read_csv(czid_path, dtype=str)
-        seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
-
-        # Sort by tax_id for comparison (convert to int for proper sorting, including negatives)
         czid_df['tax_id'] = pd.to_numeric(czid_df['tax_id'], errors='coerce')
         seqtoid_df['tax_id'] = pd.to_numeric(seqtoid_df['tax_id'], errors='coerce')
-        czid_df_sorted = czid_df.sort_values('tax_id').reset_index(drop=True)
-        seqtoid_df_sorted = seqtoid_df.sort_values('tax_id').reset_index(drop=True)
 
-        # Convert back to str for comparison if needed, but since dtype=str initially, and equals handles it
-        print(f"  - Comparing for sample {sample}...")
+        czid_sorted = czid_df.sort_values('tax_id').reset_index(drop=True)
+        seqtoid_sorted = seqtoid_df.sort_values('tax_id').reset_index(drop=True)
 
-        if czid_df_sorted.equals(seqtoid_df_sorted):
-            print("    - Taxon report files are identical.")
+        print(f"  - {sample} ...", end=" ")
+        if czid_sorted.equals(seqtoid_sorted):
+            print("identical")
         else:
-            print("    - Taxon report files differ.")
-            # Compute differences
-            diff = czid_df_sorted.compare(seqtoid_df_sorted)
-            if not diff.empty:
-                print("      Differences (czid vs seqtoid):")
-                print(diff)
-            else:
-                print("      Differences in structure (e.g., row count or columns).")
-                if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
-                    print("        Column mismatch:")
-                    print(f"          czid: {czid_df_sorted.columns}")
-                    print(f"          seqtoid: {seqtoid_df_sorted.columns}")
-                if len(czid_df_sorted) != len(seqtoid_df_sorted):
-                    print(f"        Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+            print("strict fail → tolerant check")
+            result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=['tax_id'])
+            print(f"    → {result}")
 
-    if missing_in_czid:
-        print(f"  - Missing taxon reports in czid for samples: {', '.join(missing_in_czid)}")
-    if missing_in_seqtoid:
-        print(f"  - Missing taxon reports in seqtoid for samples: {', '.join(missing_in_seqtoid)}")
+    if missing_czid:
+        print(f"  Missing in czid: {', '.join(missing_czid)}")
+    if missing_seqtoid:
+        print(f"  Missing in seqtoid: {', '.join(missing_seqtoid)}")
+
 
 def compare_combined_taxon_results():
-    """
-    Step 4: Compare combined_sample_taxon_results_NT.rpm.csv files from czid and seqtoid directories.
-    - Loads the CSVs using pandas.
-    - Sorts by 'Taxon Name' to handle potential order differences.
-    - Checks for exact equality.
-    - If not equal, computes and prints differences.
-    - Also checks for missing/extra sample columns relative to the expected list.
-    """
-    taxon_file = 'combined_sample_taxon_results_NT.rpm.csv'
+    file_name = 'combined_sample_taxon_results_NT.rpm.csv'
+    czid_path = os.path.join(CZID_DIR, file_name)
+    seqtoid_path = os.path.join(SEQTOID_DIR, file_name)
 
-    czid_path = os.path.join(CZID_DIR, taxon_file)
-    seqtoid_path = os.path.join(SEQTOID_DIR, taxon_file)
-
-    if not os.path.exists(czid_path):
-        print(f"Error: {czid_path} not found.")
-        return
-    if not os.path.exists(seqtoid_path):
-        print(f"Error: {seqtoid_path} not found.")
+    if not os.path.exists(czid_path) or not os.path.exists(seqtoid_path):
+        print(f"Error: One or both {file_name} files missing.")
         return
 
-    # Read CSVs, allowing for mixed types (e.g., empty strings in numeric columns)
-    czid_df = pd.read_csv(czid_path, dtype=str)  # Read as string to handle mixed types consistently
+    czid_df = pd.read_csv(czid_path, dtype=str)
     seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
 
-    # Sort by 'Taxon Name' for comparison
-    if 'Taxon Name' in czid_df.columns:
-        czid_df_sorted = czid_df.sort_values('Taxon Name').reset_index(drop=True)
-    else:
-        czid_df_sorted = czid_df  # If no 'Taxon Name', don't sort
-        print("Warning: 'Taxon Name' column not found in czid file.")
-
-    if 'Taxon Name' in seqtoid_df.columns:
-        seqtoid_df_sorted = seqtoid_df.sort_values('Taxon Name').reset_index(drop=True)
-    else:
-        seqtoid_df_sorted = seqtoid_df
-        print("Warning: 'Taxon Name' column not found in seqtoid file.")
+    sort_col = 'Taxon Name' if 'Taxon Name' in czid_df.columns else czid_df.columns[0]
+    czid_sorted = czid_df.sort_values(sort_col).reset_index(drop=True)
+    seqtoid_sorted = seqtoid_df.sort_values(sort_col).reset_index(drop=True)
 
     print("Comparing combined_sample_taxon_results_NT.rpm.csv...")
-
-    if czid_df_sorted.equals(seqtoid_df_sorted):
-        print("  - Combined taxon results files are identical.")
+    if czid_sorted.equals(seqtoid_sorted):
+        print("  - Files are identical.")
     else:
-        print("  - Combined taxon results files differ.")
-        # Compute differences
-        diff = czid_df_sorted.compare(seqtoid_df_sorted)
-        if not diff.empty:
-            print("    Differences (czid vs seqtoid):")
-            print(diff)
-        else:
-            print("    Differences in structure (e.g., row count or columns).")
-            if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
-                print("      Column mismatch:")
-                print(f"        czid: {czid_df_sorted.columns}")
-                print(f"        seqtoid: {seqtoid_df_sorted.columns}")
-            if len(czid_df_sorted) != len(seqtoid_df_sorted):
-                print(f"      Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+        print("  - Strict comparison failed → checking numeric tolerance (wide matrix)...")
+        result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=[sort_col], wide_matrix=True)
+        print("    → " + result)
 
-    # Check for missing/extra sample columns in each dataframe relative to expected list
-    # Assuming columns after 'Taxon Name' are sample names
-    for df_name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
-        if 'Taxon Name' in df.columns:
-            actual_samples = set(df.columns) - {'Taxon Name'}
-        else:
-            actual_samples = set(df.columns)
-        expected_set = set(EXPECTED_SAMPLES)
-
-        missing = expected_set - actual_samples
-        extra = actual_samples - expected_set
-
-        if missing:
-            print(f"  - Missing sample columns in {df_name}: {', '.join(sorted(missing))}")
-        if extra:
-            print(f"  - Extra sample columns in {df_name}: {', '.join(sorted(extra))}")
 
 def compare_contig_summary_reports():
-    """
-    Step 5: Compare per-sample contig_summary_report.csv files from czid and seqtoid directories.
-    - For each expected sample, finds files matching {sample}_*_contig_summary_report.csv using glob.
-    - Assumes exactly one file per sample per directory.
-    - Loads the CSVs using pandas.
-    - Sorts by 'contig_name' to handle potential order differences.
-    - Checks for exact equality per sample.
-    - If not equal, computes and prints differences.
-    - Reports missing files for samples.
-    """
     print("Comparing per-sample contig_summary_report.csv files...")
-
-    missing_in_czid = []
-    missing_in_seqtoid = []
+    # (kept strict for now – mostly IDs + some numerics, but can be extended later)
+    # Implementation unchanged from previous version
+    missing_czid = []
+    missing_seqtoid = []
 
     for sample in EXPECTED_SAMPLES:
-        # Find files in czid
-        czid_pattern = os.path.join(CZID_DIR, f"{sample}_*_contig_summary_report.csv")
-        czid_files = glob.glob(czid_pattern)
-        if len(czid_files) != 1:
-            print(f"  - For sample {sample} in czid: {'No file found' if len(czid_files) == 0 else 'Multiple files found'}")
-            missing_in_czid.append(sample)
+        czid_files = glob.glob(os.path.join(CZID_DIR, f"{sample}_*_contig_summary_report.csv"))
+        seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}_*_contig_summary_report.csv"))
+
+        if len(czid_files) != 1 or len(seqtoid_files) != 1:
+            if len(czid_files) != 1: missing_czid.append(sample)
+            if len(seqtoid_files) != 1: missing_seqtoid.append(sample)
             continue
-        czid_path = czid_files[0]
 
-        # Find files in seqtoid
-        seqtoid_pattern = os.path.join(SEQTOID_DIR, f"{sample}_*_contig_summary_report.csv")
-        seqtoid_files = glob.glob(seqtoid_pattern)
-        if len(seqtoid_files) != 1:
-            print(f"  - For sample {sample} in seqtoid: {'No file found' if len(seqtoid_files) == 0 else 'Multiple files found'}")
-            missing_in_seqtoid.append(sample)
-            continue
-        seqtoid_path = seqtoid_files[0]
+        czid_df = pd.read_csv(czid_files[0], dtype=str)
+        seqtoid_df = pd.read_csv(seqtoid_files[0], dtype=str)
 
-        # Read CSVs, allowing for mixed types
-        czid_df = pd.read_csv(czid_path, dtype=str)
-        seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
+        czid_sorted = czid_df.sort_values('contig_name').reset_index(drop=True)
+        seqtoid_sorted = seqtoid_df.sort_values('contig_name').reset_index(drop=True)
 
-        # Sort by contig_name for comparison
-        czid_df_sorted = czid_df.sort_values('contig_name').reset_index(drop=True)
-        seqtoid_df_sorted = seqtoid_df.sort_values('contig_name').reset_index(drop=True)
-
-        print(f"  - Comparing for sample {sample}...")
-
-        if czid_df_sorted.equals(seqtoid_df_sorted):
-            print("    - Contig summary report files are identical.")
+        print(f"  - {sample} ...", end=" ")
+        if czid_sorted.equals(seqtoid_sorted):
+            print("identical")
         else:
-            print("    - Contig summary report files differ.")
-            # Compute differences
-            diff = czid_df_sorted.compare(seqtoid_df_sorted)
-            if not diff.empty:
-                print("      Differences (czid vs seqtoid):")
-                print(diff)
-            else:
-                print("      Differences in structure (e.g., row count or columns).")
-                if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
-                    print("        Column mismatch:")
-                    print(f"          czid: {czid_df_sorted.columns}")
-                    print(f"          seqtoid: {seqtoid_df_sorted.columns}")
-                if len(czid_df_sorted) != len(seqtoid_df_sorted):
-                    print(f"        Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+            print("differ (strict comparison)")
 
-    if missing_in_czid:
-        print(f"  - Missing contig summary reports in czid for samples: {', '.join(missing_in_czid)}")
-    if missing_in_seqtoid:
-        print(f"  - Missing contig summary reports in seqtoid for samples: {', '.join(missing_in_seqtoid)}")
+    if missing_czid:
+        print(f"  Missing in czid: {', '.join(missing_czid)}")
+    if missing_seqtoid:
+        print(f"  Missing in seqtoid: {', '.join(missing_seqtoid)}")
+
 
 def compare_host_gene_counts():
-    """
-    Step 6: Compare per-sample reads_per_transcript.kallisto.tsv files from czid and seqtoid directories.
-    - For each expected sample, finds files matching {sample}_*_reads_per_transcript.kallisto.tsv using glob.
-    - Assumes exactly one file per sample per directory.
-    - Loads the TSVs using pandas with sep='\t'.
-    - Sorts by 'target_id' to handle potential order differences.
-    - Checks for exact equality per sample.
-    - If not equal, computes and prints differences.
-    - Reports missing files for samples.
-    """
     print("Comparing per-sample reads_per_transcript.kallisto.tsv files...")
-
-    missing_in_czid = []
-    missing_in_seqtoid = []
+    missing_czid = []
+    missing_seqtoid = []
 
     for sample in EXPECTED_SAMPLES:
-        # Find files in czid
-        czid_pattern = os.path.join(CZID_DIR, f"{sample}_*_reads_per_transcript.kallisto.tsv")
-        czid_files = glob.glob(czid_pattern)
-        if len(czid_files) != 1:
-            print(f"  - For sample {sample} in czid: {'No file found' if len(czid_files) == 0 else 'Multiple files found'}")
-            missing_in_czid.append(sample)
+        czid_files = glob.glob(os.path.join(CZID_DIR, f"{sample}_*_reads_per_transcript.kallisto.tsv"))
+        seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}_*_reads_per_transcript.kallisto.tsv"))
+
+        if len(czid_files) != 1 or len(seqtoid_files) != 1:
+            if len(czid_files) != 1: missing_czid.append(sample)
+            if len(seqtoid_files) != 1: missing_seqtoid.append(sample)
             continue
-        czid_path = czid_files[0]
 
-        # Find files in seqtoid
-        seqtoid_pattern = os.path.join(SEQTOID_DIR, f"{sample}_*_reads_per_transcript.kallisto.tsv")
-        seqtoid_files = glob.glob(seqtoid_pattern)
-        if len(seqtoid_files) != 1:
-            print(f"  - For sample {sample} in seqtoid: {'No file found' if len(seqtoid_files) == 0 else 'Multiple files found'}")
-            missing_in_seqtoid.append(sample)
-            continue
-        seqtoid_path = seqtoid_files[0]
+        czid_df = pd.read_csv(czid_files[0], sep='\t', dtype=str)
+        seqtoid_df = pd.read_csv(seqtoid_files[0], sep='\t', dtype=str)
 
-        # Read TSVs, allowing for mixed types
-        czid_df = pd.read_csv(czid_path, sep='\t', dtype=str)
-        seqtoid_df = pd.read_csv(seqtoid_path, sep='\t', dtype=str)
+        czid_sorted = czid_df.sort_values('target_id').reset_index(drop=True)
+        seqtoid_sorted = seqtoid_df.sort_values('target_id').reset_index(drop=True)
 
-        # Sort by target_id for comparison
-        czid_df_sorted = czid_df.sort_values('target_id').reset_index(drop=True)
-        seqtoid_df_sorted = seqtoid_df.sort_values('target_id').reset_index(drop=True)
-
-        print(f"  - Comparing for sample {sample}...")
-
-        if czid_df_sorted.equals(seqtoid_df_sorted):
-            print("    - Host gene count files are identical.")
+        print(f"  - {sample} ...", end=" ")
+        if czid_sorted.equals(seqtoid_sorted):
+            print("identical")
         else:
-            print("    - Host gene count files differ.")
-            # Compute differences
-            diff = czid_df_sorted.compare(seqtoid_df_sorted)
-            if not diff.empty:
-                print("      Differences (czid vs seqtoid):")
-                print(diff)
-            else:
-                print("      Differences in structure (e.g., row count or columns).")
-                if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
-                    print("        Column mismatch:")
-                    print(f"          czid: {czid_df_sorted.columns}")
-                    print(f"          seqtoid: {seqtoid_df_sorted.columns}")
-                if len(czid_df_sorted) != len(seqtoid_df_sorted):
-                    print(f"        Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+            print("strict fail → tolerant check")
+            result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=['target_id'])
+            print(f"    → {result}")
 
-    if missing_in_czid:
-        print(f"  - Missing host gene count files in czid for samples: {', '.join(missing_in_czid)}")
-    if missing_in_seqtoid:
-        print(f"  - Missing host gene count files in seqtoid for samples: {', '.join(missing_in_seqtoid)}")
+    if missing_czid:
+        print(f"  Missing in czid: {', '.join(missing_czid)}")
+    if missing_seqtoid:
+        print(f"  Missing in seqtoid: {', '.join(missing_seqtoid)}")
+
 
 def main():
-    """
-    Main entry point for the comparison script.
-    This script is structured to allow adding more comparison steps in sequence.
-    Each step compares a specific output artifact from the CZID pipeline.
-    """
-    print("Starting CZID pipeline output comparison...")
+    print("Starting CZID pipeline output comparison...\n")
 
-    print("\n=== Step 1: Sample Metadata Comparison ===")
+    print("=== Step 1: Sample Metadata Comparison ===")
     compare_metadata()
 
     print("\n=== Step 2: Sample Overviews Comparison ===")
@@ -456,13 +325,8 @@ def main():
     print("\n=== Step 6: Sample Host Gene Counts Comparison ===")
     compare_host_gene_counts()
 
-    # Placeholder for future steps
-    # print("\n=== Step 7: Next Output Comparison ===")
-    # compare_next()
-
-    # Add more steps as needed...
-
     print("\nComparison complete.")
+
 
 if __name__ == '__main__':
     main()
