@@ -219,6 +219,81 @@ def compare_taxon_reports():
     if missing_in_seqtoid:
         print(f"  - Missing taxon reports in seqtoid for samples: {', '.join(missing_in_seqtoid)}")
 
+def compare_combined_taxon_results():
+    """
+    Step 4: Compare combined_sample_taxon_results_NT.rpm.csv files from czid and seqtoid directories.
+    - Loads the CSVs using pandas.
+    - Sorts by 'Taxon Name' to handle potential order differences.
+    - Checks for exact equality.
+    - If not equal, computes and prints differences.
+    - Also checks for missing/extra sample columns relative to the expected list.
+    """
+    taxon_file = 'combined_sample_taxon_results_NT.rpm.csv'
+
+    czid_path = os.path.join(CZID_DIR, taxon_file)
+    seqtoid_path = os.path.join(SEQTOID_DIR, taxon_file)
+
+    if not os.path.exists(czid_path):
+        print(f"Error: {czid_path} not found.")
+        return
+    if not os.path.exists(seqtoid_path):
+        print(f"Error: {seqtoid_path} not found.")
+        return
+
+    # Read CSVs, allowing for mixed types (e.g., empty strings in numeric columns)
+    czid_df = pd.read_csv(czid_path, dtype=str)  # Read as string to handle mixed types consistently
+    seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
+
+    # Sort by 'Taxon Name' for comparison
+    if 'Taxon Name' in czid_df.columns:
+        czid_df_sorted = czid_df.sort_values('Taxon Name').reset_index(drop=True)
+    else:
+        czid_df_sorted = czid_df  # If no 'Taxon Name', don't sort
+        print("Warning: 'Taxon Name' column not found in czid file.")
+
+    if 'Taxon Name' in seqtoid_df.columns:
+        seqtoid_df_sorted = seqtoid_df.sort_values('Taxon Name').reset_index(drop=True)
+    else:
+        seqtoid_df_sorted = seqtoid_df
+        print("Warning: 'Taxon Name' column not found in seqtoid file.")
+
+    print("Comparing combined_sample_taxon_results_NT.rpm.csv...")
+
+    if czid_df_sorted.equals(seqtoid_df_sorted):
+        print("  - Combined taxon results files are identical.")
+    else:
+        print("  - Combined taxon results files differ.")
+        # Compute differences
+        diff = czid_df_sorted.compare(seqtoid_df_sorted)
+        if not diff.empty:
+            print("    Differences (czid vs seqtoid):")
+            print(diff)
+        else:
+            print("    Differences in structure (e.g., row count or columns).")
+            if list(czid_df_sorted.columns) != list(seqtoid_df_sorted.columns):
+                print("      Column mismatch:")
+                print(f"        czid: {czid_df_sorted.columns}")
+                print(f"        seqtoid: {seqtoid_df_sorted.columns}")
+            if len(czid_df_sorted) != len(seqtoid_df_sorted):
+                print(f"      Row count mismatch: czid={len(czid_df_sorted)}, seqtoid={len(seqtoid_df_sorted)}")
+
+    # Check for missing/extra sample columns in each dataframe relative to expected list
+    # Assuming columns after 'Taxon Name' are sample names
+    for df_name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
+        if 'Taxon Name' in df.columns:
+            actual_samples = set(df.columns) - {'Taxon Name'}
+        else:
+            actual_samples = set(df.columns)
+        expected_set = set(EXPECTED_SAMPLES)
+
+        missing = expected_set - actual_samples
+        extra = actual_samples - expected_set
+
+        if missing:
+            print(f"  - Missing sample columns in {df_name}: {', '.join(sorted(missing))}")
+        if extra:
+            print(f"  - Extra sample columns in {df_name}: {', '.join(sorted(extra))}")
+
 def main():
     """
     Main entry point for the comparison script.
@@ -236,8 +311,11 @@ def main():
     print("\n=== Step 3: Sample Taxon Reports Comparison ===")
     compare_taxon_reports()
 
+    print("\n=== Step 4: Combined Sample Taxon Results Comparison ===")
+    compare_combined_taxon_results()
+
     # Placeholder for future steps
-    # print("\n=== Step 4: Next Output Comparison ===")
+    # print("\n=== Step 5: Next Output Comparison ===")
     # compare_next()
 
     # Add more steps as needed...
