@@ -29,6 +29,14 @@ EXPECTED_SAMPLES = [
 # Helper functions for tolerant numeric comparison
 # ────────────────────────────────────────────────────────────────
 
+def file_sha256(filepath):
+    """Compute SHA-256 hash of a file in chunks (safe for large files)."""
+    sha256 = hashlib.sha256()
+    with open(filepath, 'rb') as f:
+        while chunk := f.read(8192 * 1024):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
 def numeric_diff(a: np.ndarray, b: np.ndarray, atol: float = 0.005) -> str:
     """Categorize the worst difference between two numeric arrays."""
     if len(a) == 0 or len(b) == 0:
@@ -273,9 +281,6 @@ def compare_host_gene_counts():
         print(f"  Missing in seqtoid: {', '.join(missing_seqtoid)}")
 
 
-# ────────────────────────────────────────────────────────────────
-# Step 7: Combined Microbiome File (BIOM) with sparse matrix diff
-# ────────────────────────────────────────────────────────────────
 
 def compare_combined_microbiome():
     biom_file = 'Combined Microbiome File.biom'  # adjust filename if different
@@ -374,6 +379,71 @@ def compare_combined_microbiome():
     print(f"    Max absolute difference: {max_abs_diff:.6f}")
     print(f"    Mean absolute difference: {mean_abs_diff:.6f}")
 
+def compare_nonhost_fastqs():
+    """
+    Step 8: Non-host reads comparison (sub-steps 8.1–8.3)
+    Compares _reads_nh_R1.fastq and _reads_nh_R2.fastq for each sample.
+    """
+    print("\n=== Step 8: Non-host reads comparison (R1 & R2) ===")
+
+    for sample in EXPECTED_SAMPLES:
+        print(f"\n  Sample: {sample}")
+
+        for read in ['R1', 'R2']:
+            pattern = f"{sample}_*_reads_nh_{read}.fastq"
+
+            czid_files = glob.glob(os.path.join(CZID_DIR, pattern))
+            seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, pattern))
+
+            if len(czid_files) != 1 or len(seqtoid_files) != 1:
+                status = "missing" if len(czid_files) == 0 else "multiple files"
+                print(f"    {read}: {status} in one or both directories")
+                continue
+
+            czid_fq = czid_files[0]
+            seqtoid_fq = seqtoid_files[0]
+
+            print(f"    {read} FASTQ...")
+
+            # 8.1 – Byte-for-byte identity (fastest check)
+            czid_hash = file_sha256(czid_fq)
+            seqtoid_hash = file_sha256(seqtoid_fq)
+
+            if czid_hash == seqtoid_hash:
+                print("      → Files are byte-for-byte identical")
+                continue
+
+            print("      → Files differ byte-for-byte")
+
+            # 8.2 – Same number of reads? (quick line count check)
+            czid_lines = sum(1 for _ in open(czid_fq))
+            seqtoid_lines = sum(1 for _ in open(seqtoid_fq))
+
+            if czid_lines != seqtoid_lines:
+                print(f"      → Different number of lines: czid {czid_lines}, seqtoid {seqtoid_lines}")
+                print("        (likely different read count)")
+                continue
+
+            # 8.3 – Same sequences (ignore order & qualities) – sorted seq hash
+            # Requires seqkit installed and in PATH
+            try:
+                cmd_czid = f"seqkit seq -s -i {czid_fq} | sort | sha256sum"
+                cmd_seqtoid = f"seqkit seq -s -i {seqtoid_fq} | sort | sha256sum"
+
+                czid_seq_hash = subprocess.check_output(cmd_czid, shell=True, text=True).split()[0]
+                seqtoid_seq_hash = subprocess.check_output(cmd_seqtoid, shell=True, text=True).split()[0]
+
+                if czid_seq_hash == seqtoid_seq_hash:
+                    print("      → Same set of sequences (order & qualities ignored)")
+                else:
+                    print("      → Different sequences (after sorting)")
+                    # Optional: could add diff of first few differing reads here
+
+            except FileNotFoundError:
+                print("      → seqkit not found → skipping sequence hash comparison")
+            except subprocess.CalledProcessError as e:
+                print(f"      → seqkit failed: {e}")
+
 
 def main():
     print("Starting CZID pipeline output comparison...\n")
@@ -398,6 +468,9 @@ def main():
 
     print("\n=== Step 7: Combined Microbiome File (BIOM) Comparison ===")
     compare_combined_microbiome()
+
+    print("\n=== Step 8: Non-host reads comparison (R1 & R2) ===")
+    compare_nonhost_fastqs()
 
     print("\nComparison complete.")
 
