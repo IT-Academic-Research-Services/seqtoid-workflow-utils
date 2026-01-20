@@ -5,6 +5,7 @@ import numpy as np
 import json
 from typing import List, Dict
 from scipy.sparse import coo_matrix
+import hashlib
 
 # Define paths to the directories
 CZID_DIR = 'czid'
@@ -30,7 +31,7 @@ EXPECTED_SAMPLES = [
 # ────────────────────────────────────────────────────────────────
 
 def file_sha256(filepath):
-    """Compute SHA-256 hash of a file in chunks (safe for large files)."""
+    """Compute SHA-256 hash of a file in chunks."""
     sha256 = hashlib.sha256()
     with open(filepath, 'rb') as f:
         while chunk := f.read(8192 * 1024):
@@ -444,6 +445,86 @@ def compare_nonhost_fastqs():
             except subprocess.CalledProcessError as e:
                 print(f"      → seqkit failed: {e}")
 
+def compare_nonhost_contigs():
+    """
+    Final step: Non-host contigs comparison (_contigs_nh.fasta)
+    Sub-steps:
+      - Byte-for-byte identity
+      - Same total line count (quick check)
+      - Same set of sequences (sorted, ignoring order)
+    """
+    print("\n=== Final step: Non-host contigs comparison (_contigs_nh.fasta) ===")
+
+    missing_in_czid = []
+    missing_in_seqtoid = []
+
+    for sample in EXPECTED_SAMPLES:
+        print(f"\n  Sample: {sample}")
+
+        pattern = f"{sample}_*_contigs_nh.fasta"
+
+        czid_files = glob.glob(os.path.join(CZID_DIR, pattern))
+        seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, pattern))
+
+        if len(czid_files) != 1:
+            print(f"    File not found or multiple in czid")
+            if len(czid_files) == 0:
+                missing_in_czid.append(sample)
+            continue
+
+        if len(seqtoid_files) != 1:
+            print(f"    File not found or multiple in seqtoid")
+            if len(seqtoid_files) == 0:
+                missing_in_seqtoid.append(sample)
+            continue
+
+        czid_fa = czid_files[0]
+        seqtoid_fa = seqtoid_files[0]
+
+        # 1. Byte-for-byte identity
+        czid_hash = file_sha256(czid_fa)
+        seqtoid_hash = file_sha256(seqtoid_fa)
+
+        if czid_hash == seqtoid_hash:
+            print("    → Files are byte-for-byte identical")
+            continue
+
+        print("    → Files differ byte-for-byte")
+
+        # 2. Quick line count check
+        try:
+            czid_lines = sum(1 for _ in open(czid_fa))
+            seqtoid_lines = sum(1 for _ in open(seqtoid_fa))
+
+            if czid_lines != seqtoid_lines:
+                print(f"    → Different line count: czid {czid_lines}, seqtoid {seqtoid_lines}")
+            else:
+                print("    → Same line count")
+        except Exception as e:
+            print(f"    → Error counting lines: {e}")
+
+        # 3. Same sequences (ignore order) – using seqkit if available
+        try:
+            cmd_czid = f"seqkit seq -s -i {czid_fa} | sort | sha256sum"
+            cmd_seqtoid = f"seqkit seq -s -i {seqtoid_fa} | sort | sha256sum"
+
+            czid_seq_hash = subprocess.check_output(cmd_czid, shell=True, text=True).split()[0]
+            seqtoid_seq_hash = subprocess.check_output(cmd_seqtoid, shell=True, text=True).split()[0]
+
+            if czid_seq_hash == seqtoid_seq_hash:
+                print("    → Same set of contig sequences (order ignored)")
+            else:
+                print("    → Different contig sequences (after sorting)")
+
+        except FileNotFoundError:
+            print("    → seqkit not found → skipping sequence content comparison")
+        except subprocess.CalledProcessError as e:
+            print(f"    → seqkit failed: {e}")
+
+    if missing_in_czid:
+        print(f"\n  Missing contigs files in czid for samples: {', '.join(sorted(missing_in_czid))}")
+    if missing_in_seqtoid:
+        print(f"  Missing contigs files in seqtoid for samples: {', '.join(sorted(missing_in_seqtoid))}")
 
 def main():
     print("Starting CZID pipeline output comparison...\n")
@@ -471,6 +552,9 @@ def main():
 
     print("\n=== Step 8: Non-host reads comparison (R1 & R2) ===")
     compare_nonhost_fastqs()
+
+    print("\n=== Step 9: Non-host contigs comparison ===")
+compare_nonhost_contigs()
 
     print("\nComparison complete.")
 
