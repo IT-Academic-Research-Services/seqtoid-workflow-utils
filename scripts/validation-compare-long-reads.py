@@ -19,7 +19,7 @@ EXPECTED_SAMPLES = [
 ]
 
 # ────────────────────────────────────────────────────────────────
-# Helpers (unchanged)
+# Helper functions (unchanged)
 # ────────────────────────────────────────────────────────────────
 
 def file_sha256(filepath):
@@ -92,9 +92,8 @@ def compare_metadata():
     seqtoid_path = os.path.join(SEQTOID_DIR, metadata_file)
 
     print("=== Step 1: Sample Metadata Comparison ===")
-
     if not all(os.path.exists(p) for p in [czid_path, seqtoid_path]):
-        print("✗ One or both sample_metadata.csv files missing.")
+        print("✗ One or both files missing.")
         return
 
     czid_df = pd.read_csv(czid_path)
@@ -120,7 +119,7 @@ def compare_metadata():
 
 
 # ────────────────────────────────────────────────────────────────
-# Step 2: Sample Overviews (inserted here – analogous to short-reads Step 2)
+# Step 2: Sample Overviews
 # ────────────────────────────────────────────────────────────────
 
 def compare_sample_overviews():
@@ -129,9 +128,8 @@ def compare_sample_overviews():
     seqtoid_path = os.path.join(SEQTOID_DIR, file_name)
 
     print("\n=== Step 2: Sample Overviews Comparison ===")
-
     if not all(os.path.exists(p) for p in [czid_path, seqtoid_path]):
-        print(f"✗ One or both {file_name} files missing.")
+        print(f"✗ One or both {file_name} missing.")
         return
 
     czid_df = pd.read_csv(czid_path, dtype=str)
@@ -139,8 +137,6 @@ def compare_sample_overviews():
 
     czid_sorted = czid_df.sort_values('sample_name').reset_index(drop=True)
     seqtoid_sorted = seqtoid_df.sort_values('sample_name').reset_index(drop=True)
-
-    print(f"Comparing {file_name}...")
 
     if czid_sorted.equals(seqtoid_sorted):
         print("  ✓ Files are identical (strict equality after sorting)")
@@ -165,11 +161,11 @@ def compare_taxon_reports():
 
         if len(czid_files) != 1:
             missing_czid.append(sample)
-            print(f"  ✗ {sample}: missing/multiple files in czid")
+            print(f"  ✗ {sample}: missing/multiple taxon_report in czid")
             continue
         if len(seqtoid_files) != 1:
             missing_seqtoid.append(sample)
-            print(f"  ✗ {sample}: missing/multiple files in seqtoid")
+            print(f"  ✗ {sample}: missing/multiple taxon_report in seqtoid")
             continue
 
         czid_path = czid_files[0]
@@ -204,7 +200,7 @@ def compare_taxon_reports():
 
 
 # ────────────────────────────────────────────────────────────────
-# Step 4: Combined Sample Taxon Results (NT.bpm.csv)
+# Step 4: Combined Sample Taxon Results
 # ────────────────────────────────────────────────────────────────
 
 def compare_combined_taxon_results():
@@ -215,7 +211,7 @@ def compare_combined_taxon_results():
     print("\n=== Step 4: Combined Sample Taxon Results (NT.bpm.csv) Comparison ===")
 
     if not all(os.path.exists(p) for p in [czid_path, seqtoid_path]):
-        print(f"✗ One or both {file_name} files missing.")
+        print(f"✗ One or both {file_name} missing.")
         return
 
     czid_df = pd.read_csv(czid_path)
@@ -244,12 +240,77 @@ def compare_combined_taxon_results():
         print("    → " + result)
 
 
+# ────────────────────────────────────────────────────────────────
+# Step 5: Per-sample Contig Summary Reports
+# ────────────────────────────────────────────────────────────────
+
+def compare_contig_summary_reports():
+    print("\n=== Step 5: Per-sample Contig Summary Reports Comparison ===")
+    missing_czid = []
+    missing_seqtoid = []
+
+    for sample in EXPECTED_SAMPLES:
+        czid_files = glob.glob(os.path.join(CZID_DIR, f"{sample}_*_contig_summary_report.csv"))
+        seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}_*_contig_summary_report.csv"))
+
+        if len(czid_files) != 1:
+            missing_czid.append(sample)
+            print(f"  ✗ {sample}: missing or multiple contig_summary_report in czid")
+            continue
+        if len(seqtoid_files) != 1:
+            missing_seqtoid.append(sample)
+            print(f"  ✗ {sample}: missing or multiple contig_summary_report in seqtoid")
+            continue
+
+        czid_path = czid_files[0]
+        seqtoid_path = seqtoid_files[0]
+
+        print(f"  → {sample} ...", end=" ")
+
+        try:
+            czid_df = pd.read_csv(czid_path, dtype=str)
+            seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
+
+            # Attempt to find a stable sort column
+            sort_candidates = ['contig_name', 'contig_id', 'contig', 'name', 'id', 'Contig', 'ContigID']
+            sort_col = next((c for c in sort_candidates if c in czid_df.columns), None)
+
+            if sort_col:
+                czid_df[sort_col] = czid_df[sort_col].astype(str)
+                seqtoid_df[sort_col] = seqtoid_df[sort_col].astype(str)
+                czid_sorted = czid_df.sort_values(sort_col).reset_index(drop=True)
+                seqtoid_sorted = seqtoid_df.sort_values(sort_col).reset_index(drop=True)
+            else:
+                czid_sorted = czid_df.reset_index(drop=True)
+                seqtoid_sorted = seqtoid_df.reset_index(drop=True)
+                print("(no reliable sort column found → comparing in original order)")
+
+            if czid_sorted.equals(seqtoid_sorted):
+                print("identical")
+            else:
+                print("strict fail → tolerant numeric check")
+                result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=[sort_col] if sort_col else [])
+                print(f"      → {result}")
+
+                if len(czid_sorted) != len(seqtoid_sorted):
+                    print(f"      Row count: czid = {len(czid_sorted)}, seqtoid = {len(seqtoid_sorted)}")
+
+        except Exception as e:
+            print(f"failed to compare: {e}")
+
+    if missing_czid:
+        print(f"  Missing in czid: {', '.join(missing_czid)}")
+    if missing_seqtoid:
+        print(f"  Missing in seqtoid: {', '.join(missing_seqtoid)}")
+
+
 def main():
     print("CZID Long Reads Pipeline Comparison (czid vs seqtoid)\n")
     compare_metadata()
-    compare_sample_overviews()          # ← new Step 2
-    compare_taxon_reports()             # now Step 3
-    compare_combined_taxon_results()    # now Step 4
+    compare_sample_overviews()
+    compare_taxon_reports()
+    compare_combined_taxon_results()
+    compare_contig_summary_reports()     # ← now Step 5
     print("\nComparison complete. Add next step when ready.")
 
 
