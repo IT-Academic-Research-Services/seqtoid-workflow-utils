@@ -3,7 +3,7 @@ import os
 import glob
 import numpy as np
 import hashlib
-import subprocess  # for future FASTQ/FASTA steps
+import subprocess
 
 # Define paths to the directories
 CZID_DIR = 'czid'
@@ -17,11 +17,10 @@ EXPECTED_SAMPLES = [
 ]
 
 # ────────────────────────────────────────────────────────────────
-# Helper functions
+# Helper functions (unchanged from previous version)
 # ────────────────────────────────────────────────────────────────
 
 def file_sha256(filepath):
-    """Compute SHA-256 hash of a file in chunks."""
     sha256 = hashlib.sha256()
     with open(filepath, 'rb') as f:
         while chunk := f.read(8192 * 1024):
@@ -29,7 +28,6 @@ def file_sha256(filepath):
     return sha256.hexdigest()
 
 def numeric_diff(a: np.ndarray, b: np.ndarray, atol: float = 0.005) -> str:
-    """Categorize the worst difference between two numeric arrays."""
     if len(a) == 0 or len(b) == 0:
         return "empty arrays"
     diff = np.abs(a - b)
@@ -52,7 +50,6 @@ def compare_numeric_dfs(
         id_cols: list,
         atol: float = 0.005
 ) -> str:
-    """Compare numeric columns of two dataframes with tolerance."""
     num_cols = df1.select_dtypes(include=[np.number]).columns.intersection(df2.columns)
     if len(num_cols) == 0:
         return "No numeric columns to compare"
@@ -94,11 +91,8 @@ def compare_metadata():
 
     print("=== Step 1: Sample Metadata Comparison ===")
 
-    if not os.path.exists(czid_path):
-        print(f"✗ Missing in czid: {czid_path}")
-        return
-    if not os.path.exists(seqtoid_path):
-        print(f"✗ Missing in seqtoid: {seqtoid_path}")
+    if not os.path.exists(czid_path) or not os.path.exists(seqtoid_path):
+        print("✗ One or both sample_metadata.csv files missing.")
         return
 
     czid_df = pd.read_csv(czid_path)
@@ -111,24 +105,15 @@ def compare_metadata():
         print("  ✓ Files are identical (strict equality after sorting)")
     else:
         print("  ⚠ Files differ")
-        if list(czid_sorted.columns) != list(seqtoid_sorted.columns):
-            print("    Columns differ!")
-            print("      czid:   ", list(czid_sorted.columns))
-            print("      seqtoid:", list(seqtoid_sorted.columns))
-        try:
-            result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=['sample_name'])
-            print(f"    → {result}")
-        except Exception as e:
-            print(f"    → Tolerant numeric check error: {e}")
+        result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=['sample_name'])
+        print(f"    → {result}")
 
     for name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
         actual = set(df['sample_name'].astype(str).str.strip())
         expected = set(EXPECTED_SAMPLES)
-        missing = expected - actual
-        extra = actual - expected
-        if missing:
+        if missing := expected - actual:
             print(f"  ⚠ Missing in {name}: {sorted(missing)}")
-        if extra:
+        if extra := actual - expected:
             print(f"  ⚠ Extra in {name}: {sorted(extra)}")
 
 
@@ -137,7 +122,7 @@ def compare_metadata():
 # ────────────────────────────────────────────────────────────────
 
 def compare_taxon_reports():
-    print("\n=== Step 2: Sample Taxon Reports Comparison ===")
+    print("\n=== Step 2: Per-sample Taxon Reports Comparison ===")
     missing_czid = []
     missing_seqtoid = []
 
@@ -147,23 +132,21 @@ def compare_taxon_reports():
 
         if len(czid_files) != 1:
             missing_czid.append(sample)
-            print(f"  ✗ {sample}: missing or multiple files in czid")
+            print(f"  ✗ {sample}: missing/multiple files in czid")
             continue
         if len(seqtoid_files) != 1:
             missing_seqtoid.append(sample)
-            print(f"  ✗ {sample}: missing or multiple files in seqtoid")
+            print(f"  ✗ {sample}: missing/multiple files in seqtoid")
             continue
 
         czid_path = czid_files[0]
         seqtoid_path = seqtoid_files[0]
-
         print(f"  → {sample} ...", end=" ")
 
         try:
             czid_df = pd.read_csv(czid_path, dtype=str)
             seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
 
-            # Convert tax_id for sorting
             czid_df['tax_id'] = pd.to_numeric(czid_df['tax_id'], errors='coerce')
             seqtoid_df['tax_id'] = pd.to_numeric(seqtoid_df['tax_id'], errors='coerce')
 
@@ -176,50 +159,88 @@ def compare_taxon_reports():
                 print("strict fail → tolerant numeric check")
                 result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=['tax_id'])
                 print(f"      → {result}")
-
-                # Optional: show row count difference
                 if len(czid_sorted) != len(seqtoid_sorted):
                     print(f"      Row count: czid={len(czid_sorted)}, seqtoid={len(seqtoid_sorted)}")
-
         except Exception as e:
-            print(f"failed to compare: {e}")
+            print(f"failed: {e}")
 
     if missing_czid:
-        print(f"  Missing taxon_report files in czid for: {', '.join(missing_czid)}")
+        print(f"  Missing in czid: {', '.join(missing_czid)}")
     if missing_seqtoid:
-        print(f"  Missing taxon_report files in seqtoid for: {', '.join(missing_seqtoid)}")
+        print(f"  Missing in seqtoid: {', '.join(missing_seqtoid)}")
 
 
 # ────────────────────────────────────────────────────────────────
-# Placeholders for future steps (expand as you identify files)
+# Step 3: Combined Sample Taxon Results (NT.bpm.csv)
 # ────────────────────────────────────────────────────────────────
 
-def compare_step_3():
-    print("\n=== Step 3: [TODO: Assembly / QC Statistics] ===")
-    print("  Placeholder: Compare assembly stats, N50, total contigs, read counts, etc.")
+def compare_combined_taxon_results():
+    file_name = 'combined_sample_taxon_results_NT.bpm.csv'
+    czid_path = os.path.join(CZID_DIR, file_name)
+    seqtoid_path = os.path.join(SEQTOID_DIR, file_name)
+
+    print("\n=== Step 3: Combined Sample Taxon Results (NT.bpm.csv) Comparison ===")
+
+    if not os.path.exists(czid_path):
+        print(f"✗ Missing in czid: {czid_path}")
+        return
+    if not os.path.exists(seqtoid_path):
+        print(f"✗ Missing in seqtoid: {seqtoid_path}")
+        return
+
+    czid_df = pd.read_csv(czid_path)
+    seqtoid_df = pd.read_csv(seqtoid_path)
+
+    # Sort both by Taxon Name
+    sort_col = 'Taxon Name'
+    czid_sorted = czid_df.sort_values(sort_col).reset_index(drop=True)
+    seqtoid_sorted = seqtoid_df.sort_values(sort_col).reset_index(drop=True)
+
+    print(f"Taxa count - czid: {len(czid_sorted)}, seqtoid: {len(seqtoid_sorted)}")
+
+    # Check set of taxa
+    czid_taxa = set(czid_sorted[sort_col])
+    seqtoid_taxa = set(seqtoid_sorted[sort_col])
+    if czid_taxa != seqtoid_taxa:
+        extra_czid = czid_taxa - seqtoid_taxa
+        extra_seqtoid = seqtoid_taxa - czid_taxa
+        print(f"  ⚠ Taxon sets differ!")
+        if extra_czid:
+            print(f"    Extra in czid: {len(extra_czid)} taxa")
+        if extra_seqtoid:
+            print(f"    Extra in seqtoid: {len(extra_seqtoid)} taxa")
+
+    if czid_sorted.equals(seqtoid_sorted):
+        print("  ✓ Files are identical (strict equality after sorting)")
+    else:
+        print("  ⚠ Strict comparison failed → running tolerant numeric check")
+        numeric_result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=[sort_col])
+        print(f"    → {numeric_result}")
+
+        # Quick per-sample summary
+        sample_cols = [col for col in czid_sorted.columns if col in EXPECTED_SAMPLES]
+        print("  Abundance summary (non-zero entries per sample):")
+        for sample in sample_cols:
+            czid_nz = (czid_sorted[sample] > 0).sum()
+            seq_nz = (seqtoid_sorted[sample] > 0).sum()
+            print(f"    {sample}: czid={czid_nz} taxa, seqtoid={seq_nz} taxa")
+
+
+# ────────────────────────────────────────────────────────────────
+# Placeholders for future steps
+# ────────────────────────────────────────────────────────────────
 
 def compare_step_4():
-    print("\n=== Step 4: [TODO: Combined Taxon Results / RPM tables] ===")
-    print("  Placeholder: Compare combined_sample_taxon_results_NT.rpm.csv or equivalent")
-
-def compare_nonhost_fastqs():
-    print("\n=== Step X: Non-host reads (FASTQ) ===")
-    print("  Placeholder: Implement when ready (byte hash + seqkit sequence hash)")
-
-def compare_nonhost_contigs():
-    print("\n=== Step Y: Non-host contigs (FASTA) ===")
-    print("  Placeholder: Implement when ready")
-
+    print("\n=== Step 4: [TODO] ===")
+    print("  Placeholder: e.g. assembly stats, contig summaries, non-host reads, etc.")
 
 def main():
-    print("Starting CZID Long Reads Pipeline Comparison (czid vs seqtoid)\n")
+    print("CZID Long Reads Pipeline Comparison (czid vs seqtoid)\n")
     compare_metadata()
     compare_taxon_reports()
-    compare_step_3()
+    compare_combined_taxon_results()
     compare_step_4()
-    # compare_nonhost_fastqs()
-    # compare_nonhost_contigs()
-    print("\nComparison complete. Add next step functions as needed.")
+    print("\nComparison complete.")
 
 
 if __name__ == '__main__':
