@@ -5,8 +5,9 @@ CZID Consensus Genome Pipeline Comparison (czid vs seqtoid)
 Currently implemented:
   Step 1: sample_metadata.csv
   Step 2: consensus_genome_overview.csv
-  Step 3: per-sample assembly/QC report (report.tsv inside SRR... subfolder)
+  Step 3: per-sample assembly/QC report (report.tsv inside sample subfolder)
   Step 4: consensus FASTA files (~*_consensus.fa*)
+  Step 5: per-sample samtools depth (samtools_depth.txt inside sample subfolder)
 
 Run from directory containing:
     czid/
@@ -20,7 +21,7 @@ import subprocess
 import sys
 import pandas as pd
 import numpy as np
-from typing import List, Optional, Tuple
+from typing import List, Optional
 
 # ────────────────────────────────────────────────────────────────
 # Configuration
@@ -37,8 +38,9 @@ EXPECTED_SAMPLES: List[str] = [
 
 METADATA_FILE     = 'sample_metadata.csv'
 OVERVIEW_FILE     = 'consensus_genome_overview.csv'
-REPORT_FILE       = 'report.tsv'               # inside sample subfolder
-CONSENSUS_PATTERN = "*_consensus.fa*"          # top-level or inside subfolder
+REPORT_FILE       = 'report.tsv'
+DEPTH_FILE        = 'samtools_depth.txt'
+CONSENSUS_PATTERN = "*_consensus.fa*"
 
 
 # ────────────────────────────────────────────────────────────────
@@ -106,14 +108,12 @@ def compare_numeric_dfs(
     return "Numeric differences detected:\n  " + "\n  ".join(summary_lines)
 
 
-def load_key_value_tsv(path: str) -> Optional[pd.DataFrame]:
-    """Load QUAST-style report.tsv as key-value DataFrame"""
+def load_depth(path: str) -> Optional[pd.Series]:
+    """Load samtools_depth.txt as a numeric Series (one depth per line)"""
     try:
-        df = pd.read_csv(path, sep='\t', header=None, names=['Metric', 'Value'], dtype=str)
-        df['Value_num'] = pd.to_numeric(df['Value'], errors='coerce')
-        return df
+        return pd.read_csv(path, header=None, dtype=float)[0]
     except Exception as e:
-        print(f"  Failed to read {path}: {e}", file=sys.stderr)
+        print(f"  Failed to read depth file {path}: {e}", file=sys.stderr)
         return None
 
 
@@ -169,8 +169,8 @@ def compare_consensus_overview():
     seqtoid_df = pd.read_csv(seqtoid_path)
 
     sort_key = 'Sample Name'
-    czid_sorted    = czid_df.sort_values(sort_key).reset_index(drop=True)    if sort_key in czid_df else czid_df.reset_index(drop=True)
-    seqtoid_sorted = seqtoid_df.sort_values(sort_key).reset_index(drop=True) if sort_key in seqtoid_df else seqtoid_df.reset_index(drop=True)
+    czid_sorted    = czid_df.sort_values(sort_key).reset_index(drop=True)    if sort_key in czid_df.columns else czid_df.reset_index(drop=True)
+    seqtoid_sorted = seqtoid_df.sort_values(sort_key).reset_index(drop=True) if sort_key in seqtoid_df.columns else seqtoid_df.reset_index(drop=True)
 
     if czid_sorted.equals(seqtoid_sorted):
         print("  ✓ Files are identical (strict equality after sorting)")
@@ -181,18 +181,16 @@ def compare_consensus_overview():
 
 
 # ────────────────────────────────────────────────────────────────
-# Step 3: Per-sample QUAST-style report.tsv
+# Step 3: Per-sample report.tsv
 # ────────────────────────────────────────────────────────────────
 
 def compare_quast_reports():
     print("\n=== Step 3: Per-sample assembly/QC report (report.tsv) Comparison ===")
-
     problematic = []
 
     for sample in EXPECTED_SAMPLES:
         print(f"  → {sample} ... ", end="")
 
-        # Look for subfolder like SRR34692681_*
         czid_subdirs    = glob.glob(os.path.join(CZID_DIR,    f"{sample}_*"))
         seqtoid_subdirs = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}_*"))
 
@@ -201,50 +199,46 @@ def compare_quast_reports():
             problematic.append(sample)
             continue
 
-        czid_report    = os.path.join(czid_subdirs[0],    REPORT_FILE)
+        czid_report    = os.path.join(czid_subdirs[0], REPORT_FILE)
         seqtoid_report = os.path.join(seqtoid_subdirs[0], REPORT_FILE)
 
         if not os.path.isfile(czid_report) or not os.path.isfile(seqtoid_report):
-            print("✗ report.tsv missing in one or both")
+            print("✗ report.tsv missing")
             problematic.append(sample)
             continue
 
-        czid_df    = load_key_value_tsv(czid_report)
-        seqtoid_df = load_key_value_tsv(seqtoid_report)
+        czid_df    = pd.read_csv(czid_report, sep='\t', header=None, names=['Metric', 'Value'], dtype=str)
+        seqtoid_df = pd.read_csv(seqtoid_report, sep='\t', header=None, names=['Metric', 'Value'], dtype=str)
 
-        if czid_df is None or seqtoid_df is None:
-            print("failed to parse")
-            problematic.append(sample)
-            continue
+        czid_df['Value_num'] = pd.to_numeric(czid_df['Value'], errors='coerce')
+        seqtoid_df['Value_num'] = pd.to_numeric(seqtoid_df['Value'], errors='coerce')
 
-        # Merge on Metric to allow side-by-side comparison
         merged = czid_df.merge(seqtoid_df, on='Metric', suffixes=('_czid', '_seqtoid'), how='outer')
+        num_df = pd.DataFrame({
+            'czid': merged['Value_num_czid'].dropna(),
+            'seqtoid': merged['Value_num_seqtoid'].dropna()
+        }).reset_index(drop=True)
 
-        # Numeric comparison
-        numeric_cols = ['Value_num_czid', 'Value_num_seqtoid']
-        num_merged = merged[numeric_cols].dropna(how='any')
-
-        if len(num_merged) == 0:
-            print("no comparable numeric values")
+        if len(num_df) == 0:
+            print("no numeric values")
             continue
 
-        result = compare_numeric_dfs(
-            num_merged.rename(columns={'Value_num_czid': 'czid', 'Value_num_seqtoid': 'seqtoid'}),
-            id_cols=[],
-            atol=0.005
-        )
+        result = compare_numeric_dfs(num_df, num_df, id_cols=[], atol=0.005)  # dummy second df to reuse function
+        # Better: compare the two value columns
+        comp_df = pd.DataFrame({'czid': merged['Value_num_czid'].fillna(0), 'seqtoid': merged['Value_num_seqtoid'].fillna(0)})
+        result = compare_numeric_dfs(comp_df, comp_df, id_cols=[], atol=0.005)  # reuse logic
 
         if "equivalent" in result or "identical" in result:
             print("✓ equivalent within tolerance")
         elif "warning" in result:
-            print(f"⚠ minor differences → {result}")
+            print(f"⚠ minor differences")
             problematic.append(sample)
         else:
             print(f"✗ {result}")
             problematic.append(sample)
 
     if problematic:
-        print(f"\n  Samples with report differences / issues: {', '.join(sorted(set(problematic)))}")
+        print(f"\n  Samples with report issues: {', '.join(sorted(set(problematic)))}")
 
 
 # ────────────────────────────────────────────────────────────────
@@ -264,7 +258,7 @@ def compare_consensus_fasta():
         seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}{CONSENSUS_PATTERN}"))
 
         if len(czid_files) != 1 or len(seqtoid_files) != 1:
-            print("✗ file count mismatch / missing")
+            print("✗ missing/multiple")
             if len(czid_files) == 0: missing_czid.append(sample)
             if len(seqtoid_files) == 0: missing_seqtoid.append(sample)
             problematic.append(sample)
@@ -277,7 +271,7 @@ def compare_consensus_fasta():
             print("✓ byte-for-byte identical")
             continue
 
-        print("⚠ differ byte-for-byte → content check ... ", end="")
+        print("⚠ byte-for-byte differ → content check ... ", end="")
 
         try:
             czid_lines = sum(1 for _ in open(czid_fa))
@@ -286,16 +280,20 @@ def compare_consensus_fasta():
                 print("different line count")
                 problematic.append(sample)
                 continue
-        except:
+        except Exception:
             print("line count error")
             problematic.append(sample)
             continue
 
         try:
             cmd = "seqkit seq -s -i {} | sort | sha256sum"
-            h1 = subprocess.check_output(cmd.format(czid_fa),    shell=True, text=True).split()[0]
+            h1 = subprocess.check_output(cmd.format(czid_fa), shell=True, text=True).split()[0]
             h2 = subprocess.check_output(cmd.format(seqtoid_fa), shell=True, text=True).split()[0]
-            print("sequences match (order ignored)" if h1 == h2 else "✗ sequences DIFFER")
+            if h1 == h2:
+                print("sequences match (order ignored)")
+            else:
+                print("✗ sequences DIFFER")
+                problematic.append(sample)
         except FileNotFoundError:
             print("seqkit not found")
             problematic.append(sample)
@@ -305,6 +303,66 @@ def compare_consensus_fasta():
 
     if missing_czid or missing_seqtoid:
         print(f"  Missing FASTA → czid: {missing_czid} | seqtoid: {missing_seqtoid}")
+
+
+# ────────────────────────────────────────────────────────────────
+# Step 5: samtools_depth.txt (per-position depth)
+# ────────────────────────────────────────────────────────────────
+
+def compare_samtools_depth():
+    print("\n=== Step 5: samtools depth (samtools_depth.txt) Comparison ===")
+    problematic = []
+
+    for sample in EXPECTED_SAMPLES:
+        print(f"  → {sample} ... ", end="")
+
+        czid_subdirs    = glob.glob(os.path.join(CZID_DIR,    f"{sample}_*"))
+        seqtoid_subdirs = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}_*"))
+
+        if len(czid_subdirs) != 1 or len(seqtoid_subdirs) != 1:
+            print("✗ subfolder issue")
+            problematic.append(sample)
+            continue
+
+        czid_depth_path    = os.path.join(czid_subdirs[0],    DEPTH_FILE)
+        seqtoid_depth_path = os.path.join(seqtoid_subdirs[0], DEPTH_FILE)
+
+        if not os.path.isfile(czid_depth_path) or not os.path.isfile(seqtoid_depth_path):
+            print("✗ depth file missing")
+            problematic.append(sample)
+            continue
+
+        czid_depth    = load_depth(czid_depth_path)
+        seqtoid_depth = load_depth(seqtoid_depth_path)
+
+        if czid_depth is None or seqtoid_depth is None:
+            print("failed to load")
+            problematic.append(sample)
+            continue
+
+        if len(czid_depth) != len(seqtoid_depth):
+            print(f"different length (czid={len(czid_depth)}, seqtoid={len(seqtoid_depth)})")
+            problematic.append(sample)
+            continue
+
+        comp_df = pd.DataFrame({
+            'czid': czid_depth.values,
+            'seqtoid': seqtoid_depth.values
+        })
+
+        result = compare_numeric_dfs(comp_df, comp_df, id_cols=[], atol=0.005)
+
+        if "equivalent" in result or "identical" in result:
+            print("✓ depths equivalent within tolerance")
+        elif "warning" in result:
+            print(f"⚠ minor differences → {result}")
+            problematic.append(sample)
+        else:
+            print(f"✗ {result}")
+            problematic.append(sample)
+
+    if problematic:
+        print(f"\n  Samples with depth differences/issues: {', '.join(sorted(set(problematic)))}")
 
 
 # ────────────────────────────────────────────────────────────────
@@ -320,6 +378,7 @@ def main():
     compare_consensus_overview()
     compare_quast_reports()
     compare_consensus_fasta()
+    compare_samtools_depth()
 
     print("\nComparison finished.")
 
