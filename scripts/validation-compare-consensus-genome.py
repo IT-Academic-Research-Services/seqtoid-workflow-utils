@@ -2,13 +2,13 @@
 """
 CZID Consensus Genome Pipeline Comparison (czid vs seqtoid)
 
-Compares outputs step-by-step between two pipeline runs.
 Currently implemented:
   Step 1: sample_metadata.csv
   Step 2: consensus_genome_overview.csv
-  Step 3: consensus FASTA files (~*_consensus.fa*)
+  Step 3: per-sample assembly/QC report (report.tsv inside SRR... subfolder)
+  Step 4: consensus FASTA files (~*_consensus.fa*)
 
-Run this script from the directory that contains:
+Run from directory containing:
     czid/
     seqtoid/
 """
@@ -20,7 +20,7 @@ import subprocess
 import sys
 import pandas as pd
 import numpy as np
-from typing import List
+from typing import List, Optional, Tuple
 
 # ────────────────────────────────────────────────────────────────
 # Configuration
@@ -35,17 +35,17 @@ EXPECTED_SAMPLES: List[str] = [
     'SRR34692681'
 ]
 
-METADATA_FILE           = 'sample_metadata.csv'
-OVERVIEW_FILE           = 'consensus_genome_overview.csv'
-CONSENSUS_PATTERN       = "*_consensus.fa*"   # catches .fa and .fasta
+METADATA_FILE     = 'sample_metadata.csv'
+OVERVIEW_FILE     = 'consensus_genome_overview.csv'
+REPORT_FILE       = 'report.tsv'               # inside sample subfolder
+CONSENSUS_PATTERN = "*_consensus.fa*"          # top-level or inside subfolder
 
 
 # ────────────────────────────────────────────────────────────────
-# Shared helper functions
+# Shared helpers
 # ────────────────────────────────────────────────────────────────
 
 def file_sha256(filepath: str) -> str:
-    """Compute SHA-256 hash of a file in chunks."""
     sha256 = hashlib.sha256()
     with open(filepath, 'rb') as f:
         while chunk := f.read(8192 * 1024):
@@ -73,12 +73,12 @@ def numeric_diff(a: np.ndarray, b: np.ndarray, atol: float = 0.005) -> str:
 def compare_numeric_dfs(
         df1: pd.DataFrame,
         df2: pd.DataFrame,
-        id_cols: list,
+        id_cols: list = None,
         atol: float = 0.005,
 ) -> str:
     num_cols = df1.select_dtypes(include=[np.number]).columns.intersection(df2.columns)
     if len(num_cols) == 0:
-        return "No numeric columns to compare"
+        return "No numeric columns found to compare"
 
     results = {}
     for col in num_cols:
@@ -106,59 +106,50 @@ def compare_numeric_dfs(
     return "Numeric differences detected:\n  " + "\n  ".join(summary_lines)
 
 
+def load_key_value_tsv(path: str) -> Optional[pd.DataFrame]:
+    """Load QUAST-style report.tsv as key-value DataFrame"""
+    try:
+        df = pd.read_csv(path, sep='\t', header=None, names=['Metric', 'Value'], dtype=str)
+        df['Value_num'] = pd.to_numeric(df['Value'], errors='coerce')
+        return df
+    except Exception as e:
+        print(f"  Failed to read {path}: {e}", file=sys.stderr)
+        return None
+
+
 # ────────────────────────────────────────────────────────────────
 # Step 1: Sample Metadata
 # ────────────────────────────────────────────────────────────────
 
 def compare_metadata():
     print("\n=== Step 1: Sample Metadata Comparison ===")
-
     czid_path    = os.path.join(CZID_DIR,    METADATA_FILE)
     seqtoid_path = os.path.join(SEQTOID_DIR, METADATA_FILE)
 
     if not all(os.path.exists(p) for p in [czid_path, seqtoid_path]):
         print("✗ One or both files missing.")
-        for p in [czid_path, seqtoid_path]:
-            if not os.path.exists(p):
-                print(f"  Missing: {p}")
         return
 
-    try:
-        czid_df    = pd.read_csv(czid_path,    dtype=str)
-        seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
-    except Exception as e:
-        print(f"✗ Failed to read one or both files: {e}")
-        return
+    czid_df    = pd.read_csv(czid_path, dtype=str)
+    seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
 
     sort_key = 'sample_name'
-    if sort_key in czid_df.columns and sort_key in seqtoid_df.columns:
-        czid_sorted    = czid_df.sort_values(sort_key).reset_index(drop=True)
-        seqtoid_sorted = seqtoid_df.sort_values(sort_key).reset_index(drop=True)
-    else:
-        czid_sorted    = czid_df.reset_index(drop=True)
-        seqtoid_sorted = seqtoid_df.reset_index(drop=True)
+    czid_sorted    = czid_df.sort_values(sort_key).reset_index(drop=True)    if sort_key in czid_df.columns else czid_df.reset_index(drop=True)
+    seqtoid_sorted = seqtoid_df.sort_values(sort_key).reset_index(drop=True) if sort_key in seqtoid_df.columns else seqtoid_df.reset_index(drop=True)
 
     if czid_sorted.equals(seqtoid_sorted):
         print("  ✓ Files are identical (strict equality after sorting)")
     else:
         print("  ⚠ Files differ")
-        result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=[sort_key] if sort_key in czid_sorted else [])
+        result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, atol=0.005)
         print(f"    → {result}")
-
-        if set(czid_sorted.columns) != set(seqtoid_sorted.columns):
-            print("      Column sets differ")
-        if len(czid_sorted) != len(seqtoid_sorted):
-            print(f"      Row count: czid={len(czid_sorted)}, seqtoid={len(seqtoid_sorted)}")
 
     for name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
         actual = set(df.get('sample_name', pd.Series()).astype(str).str.strip())
-        expected = set(EXPECTED_SAMPLES)
-        missing = expected - actual
-        extra   = actual   - expected
-        if missing:
-            print(f"  ⚠ Missing in {name}: {', '.join(sorted(missing))}")
-        if extra:
-            print(f"  ⚠ Extra in {name}:   {', '.join(sorted(extra))}")
+        missing = set(EXPECTED_SAMPLES) - actual
+        extra   = actual - set(EXPECTED_SAMPLES)
+        if missing: print(f"  ⚠ Missing in {name}: {sorted(missing)}")
+        if extra:   print(f"  ⚠ Extra in {name}:   {sorted(extra)}")
 
 
 # ────────────────────────────────────────────────────────────────
@@ -167,7 +158,6 @@ def compare_metadata():
 
 def compare_consensus_overview():
     print("\n=== Step 2: Consensus Genome Overview Comparison ===")
-
     czid_path    = os.path.join(CZID_DIR,    OVERVIEW_FILE)
     seqtoid_path = os.path.join(SEQTOID_DIR, OVERVIEW_FILE)
 
@@ -175,150 +165,163 @@ def compare_consensus_overview():
         print("✗ One or both files missing.")
         return
 
-    try:
-        czid_df    = pd.read_csv(czid_path)
-        seqtoid_df = pd.read_csv(seqtoid_path)
-    except Exception as e:
-        print(f"✗ Failed to read one or both files: {e}")
-        return
+    czid_df    = pd.read_csv(czid_path)
+    seqtoid_df = pd.read_csv(seqtoid_path)
 
     sort_key = 'Sample Name'
-    if sort_key in czid_df.columns and sort_key in seqtoid_df.columns:
-        czid_sorted    = czid_df.sort_values(sort_key).reset_index(drop=True)
-        seqtoid_sorted = seqtoid_df.sort_values(sort_key).reset_index(drop=True)
-    else:
-        czid_sorted    = czid_df.reset_index(drop=True)
-        seqtoid_sorted = seqtoid_df.reset_index(drop=True)
+    czid_sorted    = czid_df.sort_values(sort_key).reset_index(drop=True)    if sort_key in czid_df else czid_df.reset_index(drop=True)
+    seqtoid_sorted = seqtoid_df.sort_values(sort_key).reset_index(drop=True) if sort_key in seqtoid_df else seqtoid_df.reset_index(drop=True)
 
     if czid_sorted.equals(seqtoid_sorted):
         print("  ✓ Files are identical (strict equality after sorting)")
     else:
         print("  ⚠ Files differ")
-        result = compare_numeric_dfs(
-            czid_sorted, seqtoid_sorted,
-            id_cols=[sort_key] if sort_key in czid_sorted else [],
-            atol=0.005
-        )
+        result = compare_numeric_dfs(czid_sorted, seqtoid_sorted, atol=0.005)
         print(f"    → {result}")
 
-        if len(czid_sorted) != len(seqtoid_sorted):
-            print(f"      Row count mismatch: czid={len(czid_sorted)}, seqtoid={len(seqtoid_sorted)}")
-
-    # Sample coverage check (just like metadata)
-    for name, df in [('czid', czid_df), ('seqtoid', seqtoid_df)]:
-        actual = set(df.get('Sample Name', pd.Series()).astype(str).str.strip())
-        expected = set(EXPECTED_SAMPLES)
-        missing = expected - actual
-        extra   = actual   - expected
-        if missing:
-            print(f"  ⚠ Missing samples in {name}: {', '.join(sorted(missing))}")
-        if extra:
-            print(f"  ⚠ Extra samples in {name}:   {', '.join(sorted(extra))}")
-
 
 # ────────────────────────────────────────────────────────────────
-# Step 3: Consensus FASTA files
+# Step 3: Per-sample QUAST-style report.tsv
 # ────────────────────────────────────────────────────────────────
 
-def compare_consensus_fasta():
-    print("\n=== Step 3: Consensus FASTA Comparison ===")
+def compare_quast_reports():
+    print("\n=== Step 3: Per-sample assembly/QC report (report.tsv) Comparison ===")
 
-    missing_czid    = []
-    missing_seqtoid = []
-    problematic     = []
+    problematic = []
 
     for sample in EXPECTED_SAMPLES:
         print(f"  → {sample} ... ", end="")
 
-        czid_files    = glob.glob(os.path.join(CZID_DIR,    f"{sample}{CONSENSUS_PATTERN}"))
+        # Look for subfolder like SRR34692681_*
+        czid_subdirs    = glob.glob(os.path.join(CZID_DIR,    f"{sample}_*"))
+        seqtoid_subdirs = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}_*"))
+
+        if len(czid_subdirs) != 1 or len(seqtoid_subdirs) != 1:
+            print("✗ subfolder issue")
+            problematic.append(sample)
+            continue
+
+        czid_report    = os.path.join(czid_subdirs[0],    REPORT_FILE)
+        seqtoid_report = os.path.join(seqtoid_subdirs[0], REPORT_FILE)
+
+        if not os.path.isfile(czid_report) or not os.path.isfile(seqtoid_report):
+            print("✗ report.tsv missing in one or both")
+            problematic.append(sample)
+            continue
+
+        czid_df    = load_key_value_tsv(czid_report)
+        seqtoid_df = load_key_value_tsv(seqtoid_report)
+
+        if czid_df is None or seqtoid_df is None:
+            print("failed to parse")
+            problematic.append(sample)
+            continue
+
+        # Merge on Metric to allow side-by-side comparison
+        merged = czid_df.merge(seqtoid_df, on='Metric', suffixes=('_czid', '_seqtoid'), how='outer')
+
+        # Numeric comparison
+        numeric_cols = ['Value_num_czid', 'Value_num_seqtoid']
+        num_merged = merged[numeric_cols].dropna(how='any')
+
+        if len(num_merged) == 0:
+            print("no comparable numeric values")
+            continue
+
+        result = compare_numeric_dfs(
+            num_merged.rename(columns={'Value_num_czid': 'czid', 'Value_num_seqtoid': 'seqtoid'}),
+            id_cols=[],
+            atol=0.005
+        )
+
+        if "equivalent" in result or "identical" in result:
+            print("✓ equivalent within tolerance")
+        elif "warning" in result:
+            print(f"⚠ minor differences → {result}")
+            problematic.append(sample)
+        else:
+            print(f"✗ {result}")
+            problematic.append(sample)
+
+    if problematic:
+        print(f"\n  Samples with report differences / issues: {', '.join(sorted(set(problematic)))}")
+
+
+# ────────────────────────────────────────────────────────────────
+# Step 4: Consensus FASTA
+# ────────────────────────────────────────────────────────────────
+
+def compare_consensus_fasta():
+    print("\n=== Step 4: Consensus FASTA Comparison ===")
+    missing_czid = []
+    missing_seqtoid = []
+    problematic = []
+
+    for sample in EXPECTED_SAMPLES:
+        print(f"  → {sample} ... ", end="")
+
+        czid_files = glob.glob(os.path.join(CZID_DIR, f"{sample}{CONSENSUS_PATTERN}"))
         seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}{CONSENSUS_PATTERN}"))
 
-        if len(czid_files) != 1:
-            print("✗", end=" ")
-            if len(czid_files) == 0:
-                print("missing in czid")
-                missing_czid.append(sample)
-            else:
-                print(f"multiple in czid ({len(czid_files)})")
+        if len(czid_files) != 1 or len(seqtoid_files) != 1:
+            print("✗ file count mismatch / missing")
+            if len(czid_files) == 0: missing_czid.append(sample)
+            if len(seqtoid_files) == 0: missing_seqtoid.append(sample)
             problematic.append(sample)
             continue
 
-        if len(seqtoid_files) != 1:
-            print("✗", end=" ")
-            if len(seqtoid_files) == 0:
-                print("missing in seqtoid")
-                missing_seqtoid.append(sample)
-            else:
-                print(f"multiple in seqtoid ({len(seqtoid_files)})")
-            problematic.append(sample)
-            continue
-
-        czid_fa    = czid_files[0]
+        czid_fa = czid_files[0]
         seqtoid_fa = seqtoid_files[0]
 
-        czid_hash    = file_sha256(czid_fa)
-        seqtoid_hash = file_sha256(seqtoid_fa)
-
-        if czid_hash == seqtoid_hash:
+        if file_sha256(czid_fa) == file_sha256(seqtoid_fa):
             print("✓ byte-for-byte identical")
             continue
 
-        print("⚠ byte-for-byte differ → checking content ... ", end="")
+        print("⚠ differ byte-for-byte → content check ... ", end="")
 
         try:
-            czid_lines    = sum(1 for _ in open(czid_fa))
+            czid_lines = sum(1 for _ in open(czid_fa))
             seqtoid_lines = sum(1 for _ in open(seqtoid_fa))
             if czid_lines != seqtoid_lines:
-                print(f"different line count (czid={czid_lines}, seqtoid={seqtoid_lines})")
+                print("different line count")
                 problematic.append(sample)
                 continue
-        except Exception as e:
-            print(f"line count error: {e}")
+        except:
+            print("line count error")
             problematic.append(sample)
             continue
 
         try:
             cmd = "seqkit seq -s -i {} | sort | sha256sum"
-            czid_seq   = subprocess.check_output(cmd.format(czid_fa),    shell=True, text=True).split()[0]
-            seqtoid_seq = subprocess.check_output(cmd.format(seqtoid_fa), shell=True, text=True).split()[0]
-
-            if czid_seq == seqtoid_seq:
-                print("sequences match (order & formatting ignored)")
-            else:
-                print("✗ sequences DIFFER")
-                problematic.append(sample)
-
+            h1 = subprocess.check_output(cmd.format(czid_fa),    shell=True, text=True).split()[0]
+            h2 = subprocess.check_output(cmd.format(seqtoid_fa), shell=True, text=True).split()[0]
+            print("sequences match (order ignored)" if h1 == h2 else "✗ sequences DIFFER")
         except FileNotFoundError:
-            print("seqkit not found → skipping deep check")
+            print("seqkit not found")
             problematic.append(sample)
-        except subprocess.CalledProcessError as e:
-            print(f"seqkit failed: {e}")
+        except Exception as e:
+            print(f"seqkit error: {e}")
             problematic.append(sample)
 
     if missing_czid or missing_seqtoid:
-        if missing_czid:
-            print(f"  Missing FASTA in czid:    {', '.join(sorted(missing_czid))}")
-        if missing_seqtoid:
-            print(f"  Missing FASTA in seqtoid: {', '.join(sorted(missing_seqtoid))}")
-
-    if problematic:
-        print(f"  Samples with FASTA issues: {', '.join(sorted(set(problematic)))}")
+        print(f"  Missing FASTA → czid: {missing_czid} | seqtoid: {missing_seqtoid}")
 
 
 # ────────────────────────────────────────────────────────────────
-# Main execution
+# Main
 # ────────────────────────────────────────────────────────────────
 
 def main():
     print("CZID Consensus Genome Pipeline Comparison")
-    print(f"  {CZID_DIR}/  vs  {SEQTOID_DIR}/")
+    print(f"  {CZID_DIR}/ vs {SEQTOID_DIR}/")
     print(f"  Samples: {', '.join(EXPECTED_SAMPLES)}\n")
 
     compare_metadata()
     compare_consensus_overview()
+    compare_quast_reports()
     compare_consensus_fasta()
 
-    print("\nComparison finished (steps 1–3).")
+    print("\nComparison finished.")
 
 
 if __name__ == '__main__':
