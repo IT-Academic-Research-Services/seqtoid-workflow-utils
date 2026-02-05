@@ -215,6 +215,15 @@ def compare_taxon_reports():
 
 
 def compare_combined_taxon_results():
+    """
+    Step 4: Compare combined_sample_taxon_results_NT.rpm.csv
+    - Aligns on 'Taxon Name'
+    - Per-taxon per-sample cell comparison:
+      - Both values: numeric diff category
+      - One value, one missing/NaN: 'missing'
+      - Both missing/NaN: skip
+    - Writes long-form CSV with per-cell results
+    """
     file_name = 'combined_sample_taxon_results_NT.rpm.csv'
     czid_path = os.path.join(CZID_DIR, file_name)
     seqtoid_path = os.path.join(SEQTOID_DIR, file_name)
@@ -224,37 +233,64 @@ def compare_combined_taxon_results():
         pd.DataFrame({'file': [file_name], 'status': ['missing']}).to_csv('step4_combined_rpm.csv', index=False)
         return
 
-    czid_df = pd.read_csv(czid_path, dtype=str)
-    seqtoid_df = pd.read_csv(seqtoid_path, dtype=str)
+    czid_df = pd.read_csv(czid_path)
+    seqtoid_df = pd.read_csv(seqtoid_path)
 
-    # Find the taxon name column (usually first)
-    sort_col = 'Taxon Name' if 'Taxon Name' in czid_df.columns else czid_df.columns[0]
+    # Assume first column is 'Taxon Name'
+    taxon_col = czid_df.columns[0]
 
-    czid_sorted = czid_df.sort_values(sort_col).reset_index(drop=True)
-    seqtoid_sorted = seqtoid_df.sort_values(sort_col).reset_index(drop=True)
+    # Set index to taxon for merging
+    czid_df.set_index(taxon_col, inplace=True)
+    seqtoid_df.set_index(taxon_col, inplace=True)
 
-    print("Comparing combined_sample_taxon_results_NT.rpm.csv...")
+    # Outer merge to include all taxa
+    merged = czid_df.join(seqtoid_df, lsuffix='_czid', rsuffix='_seqtoid', how='outer')
 
-    # Always perform numeric comparison
-    print("  → Performing numeric tolerance check...")
+    # Sample columns (assume all except index are samples)
+    sample_cols = [col.replace('_czid', '') for col in merged.columns if '_czid' in col]
 
-    # The sample columns are the numeric ones (all except the first taxon column)
-    diffs = compare_numeric_dfs(czid_sorted, seqtoid_sorted, id_cols=[sort_col])
-
-    # Prepare results
+    # Collect per-cell results
     rows = []
-    if diffs:
-        for col, cat in diffs.items():
-            rows.append({
-                'column': col,
-                'category': cat,
-                'symbol': DIFF_SYMBOLS.get(cat, cat)
-            })
-    else:
-        rows.append({'status': 'no numeric differences detected'})
+    for taxon in merged.index:
+        for sample in sample_cols:
+            val_czid = merged.at[taxon, f"{sample}_czid"]
+            val_seqtoid = merged.at[taxon, f"{sample}_seqtoid"]
 
+            # Skip if both NaN/missing
+            if pd.isna(val_czid) and pd.isna(val_seqtoid):
+                continue
+
+            # Missing if one NaN and other not
+            if pd.isna(val_czid) or pd.isna(val_seqtoid):
+                category = 'missing'
+                abs_diff = 'N/A'
+            else:
+                # Numeric comparison
+                val_czid = float(val_czid)
+                val_seqtoid = float(val_seqtoid)
+                abs_diff = abs(val_czid - val_seqtoid)
+                if abs_diff <= 0.005:
+                    category = 'equivalent'
+                elif abs_diff <= 0.05:
+                    category = 'warning'
+                else:
+                    category = 'significant'
+
+            symbol = DIFF_SYMBOLS.get(category, category)
+
+            rows.append({
+                'taxon': taxon,
+                'sample': sample,
+                'value_czid': val_czid,
+                'value_seqtoid': val_seqtoid,
+                'abs_diff': abs_diff if category != 'missing' else 'N/A',
+                'category': category,
+                'symbol': symbol
+            })
+
+    # Write long-form CSV
     pd.DataFrame(rows).to_csv('step4_combined_rpm.csv', index=False)
-    print("  → Results written to step4_combined_rpm.csv")
+    print(f"  → Per-cell comparison complete. Results in step4_combined_rpm.csv ({len(rows)} entries)")
 
 
 def compare_contig_summary_reports():
@@ -360,42 +396,94 @@ def compare_contig_summary_reports():
 
 
 def compare_host_gene_counts():
-    print("Step 6: per-sample kallisto host counts")
-    rows = []
-    missing_czid = []
-    missing_seqtoid = []
+    """
+    Step 6: Compare per-sample reads_per_transcript.kallisto.tsv files.
+    - For each sample, computes proportion of target_id absent in the other file.
+    - Absent proportion = (unique in A - unique in B) / unique in A (average of both directions).
+    - Categories: <0.05 equivalent, 0.05-0.1 warning, >0.1 significant.
+    - Writes per-sample results to CSV.
+    """
+    print("Comparing per-sample reads_per_transcript.kallisto.tsv files...")
+
+    results = []
+    missing_in_czid = []
+    missing_in_seqtoid = []
 
     for sample in EXPECTED_SAMPLES:
-        pattern = f"{sample}_*_reads_per_transcript.kallisto.tsv"
-        czid_f = glob.glob(os.path.join(CZID_DIR, pattern))
-        seqtoid_f = glob.glob(os.path.join(SEQTOID_DIR, pattern))
+        # Find files
+        czid_pattern = os.path.join(CZID_DIR, f"{sample}_*_reads_per_transcript.kallisto.tsv")
+        seqtoid_pattern = os.path.join(SEQTOID_DIR, f"{sample}_*_reads_per_transcript.kallisto.tsv")
 
-        if len(czid_f) != 1 or len(seqtoid_f) != 1:
-            if len(czid_f) != 1: missing_czid.append(sample)
-            if len(seqtoid_f) != 1: missing_seqtoid.append(sample)
-            rows.append({'sample': sample, 'status': 'missing'})
+        czid_files = glob.glob(czid_pattern)
+        seqtoid_files = glob.glob(seqtoid_pattern)
+
+        if len(czid_files) != 1 or len(seqtoid_files) != 1:
+            print(f"  - For sample {sample}: {'No file found' if len(czid_files) == 0 else 'Multiple files'} in czid")
+            print(f"  - For sample {sample}: {'No file found' if len(seqtoid_files) == 0 else 'Multiple files'} in seqtoid")
+            if len(czid_files) != 1:
+                missing_in_czid.append(sample)
+            if len(seqtoid_files) != 1:
+                missing_in_seqtoid.append(sample)
+            results.append({'sample': sample, 'absent_proportion': 'N/A', 'category': 'missing', 'symbol': 'missing'})
             continue
 
-        czid_df = pd.read_csv(czid_f[0], sep='\t', dtype=str)
-        seqtoid_df = pd.read_csv(seqtoid_f[0], sep='\t', dtype=str)
+        czid_path = czid_files[0]
+        seqtoid_path = seqtoid_files[0]
 
-        czid_s = czid_df.sort_values('target_id').reset_index(drop=True)
-        seqtoid_s = seqtoid_df.sort_values('target_id').reset_index(drop=True)
+        # Read TSVs
+        czid_df = pd.read_csv(czid_path, sep='\t')
+        seqtoid_df = pd.read_csv(seqtoid_path, sep='\t')
 
-        if czid_s.equals(seqtoid_s):
-            rows.append({'sample': sample, 'status': 'identical'})
+        # Get unique target_id sets
+        czid_ids = set(czid_df['target_id'])
+        seqtoid_ids = set(seqtoid_df['target_id'])
+
+        total_unique = len(czid_ids | seqtoid_ids)
+
+        # Absent in seqtoid (from czid's perspective)
+        absent_in_seqtoid = len(czid_ids - seqtoid_ids)
+        prop_absent_seqtoid = absent_in_seqtoid / len(czid_ids) if len(czid_ids) > 0 else 0
+
+        # Absent in czid (from seqtoid's perspective)
+        absent_in_czid = len(seqtoid_ids - czid_ids)
+        prop_absent_czid = absent_in_czid / len(seqtoid_ids) if len(seqtoid_ids) > 0 else 0
+
+        # Average proportion
+        avg_proportion = (prop_absent_seqtoid + prop_absent_czid) / 2
+
+        # Categorize
+        if avg_proportion < 0.05:
+            category = 'equivalent'
+        elif avg_proportion < 0.1:
+            category = 'warning'
         else:
-            diffs = compare_numeric_dfs(czid_s, seqtoid_s, id_cols=['target_id'])
-            for col, cat in diffs.items():
-                rows.append({'sample': sample, 'column': col, 'category': cat, 'symbol': DIFF_SYMBOLS.get(cat, cat)})
+            category = 'significant'
 
-    pd.DataFrame(rows).to_csv('step6_host_counts.csv', index=False)
+        symbol = DIFF_SYMBOLS.get(category, category)
 
-    if missing_czid or missing_seqtoid:
-        pd.DataFrame({
-            'missing_in_czid': [', '.join(missing_czid)],
-            'missing_in_seqtoid': [', '.join(missing_seqtoid)]
-        }).to_csv('step6_missing.csv', index=False)
+        print(f"  - {sample}: absent proportion {avg_proportion:.4f} (czid absent {prop_absent_czid:.4f}, seqtoid absent {prop_absent_seqtoid:.4f}) → {symbol}")
+
+        results.append({
+            'sample': sample,
+            'czid_unique_targets': len(czid_ids),
+            'seqtoid_unique_targets': len(seqtoid_ids),
+            'total_unique': total_unique,
+            'absent_in_czid': absent_in_czid,
+            'prop_absent_in_czid': round(prop_absent_czid, 6),
+            'absent_in_seqtoid': absent_in_seqtoid,
+            'prop_absent_in_seqtoid': round(prop_absent_seqtoid, 6),
+            'avg_absent_proportion': round(avg_proportion, 6),
+            'category': category,
+            'symbol': symbol
+        })
+
+    # Write CSV
+    pd.DataFrame(results).to_csv('step6_host_counts_comparison.csv', index=False)
+
+    if missing_in_czid:
+        print(f"  - Missing in czid: {', '.join(missing_in_czid)}")
+    if missing_in_seqtoid:
+        print(f"  - Missing in seqtoid: {', '.join(missing_in_seqtoid)}")
 
 
 def compare_combined_microbiome():

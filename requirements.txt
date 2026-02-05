@@ -19,7 +19,7 @@ idna==3.10
 immutables==0.21
 iniconfig==2.0.0
 Jinja2==3.1.6
-jsonschema==4.23.0
+jsonschema>=4.23.0
 jsonschema-specifications==2024.10.1
 jupyter_core==5.7.2
 MarkupSafe==3.0.2
@@ -33,10 +33,10 @@ PuLP==2.9.0
 pytest==8.3.5
 pytest-cov==6.0.0
 PyYAML==6.0.2
-referencing==0.36.2
+referencing>=0.36.2
 requests==2.32.3
 reretry==0.11.8
-rpds-py==0.23.1
+rpds-py>=0.30.0
 smart-open==7.1.0
 smmap==5.0.2
 snakemake==9.0.1
