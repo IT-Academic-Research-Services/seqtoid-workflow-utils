@@ -398,9 +398,10 @@ def compare_contig_summary_reports():
 def compare_host_gene_counts():
     """
     Step 6: Compare per-sample reads_per_transcript.kallisto.tsv files.
-    - For each sample, computes proportion of target_id absent in the other file.
-    - Absent proportion = (unique in A - unique in B) / unique in A (average of both directions).
-    - Categories: <0.05 equivalent, 0.05-0.1 warning, >0.1 significant.
+    - For each sample, counts unique target_id in czid and seqtoid.
+    - Computes common, unique to czid, unique to seqtoid.
+    - Proportion discrepancies = (unique_czid + unique_seqtoid) / total_unique.
+    - Categories based on proportion: <0.05 equivalent, 0.05-0.1 warning, >0.1 significant.
     - Writes per-sample results to CSV.
     """
     print("Comparing per-sample reads_per_transcript.kallisto.tsv files...")
@@ -424,7 +425,7 @@ def compare_host_gene_counts():
                 missing_in_czid.append(sample)
             if len(seqtoid_files) != 1:
                 missing_in_seqtoid.append(sample)
-            results.append({'sample': sample, 'absent_proportion': 'N/A', 'category': 'missing', 'symbol': 'missing'})
+            results.append({'sample': sample, 'discrepancy_proportion': 'N/A', 'category': 'missing', 'symbol': 'missing'})
             continue
 
         czid_path = czid_files[0]
@@ -435,44 +436,37 @@ def compare_host_gene_counts():
         seqtoid_df = pd.read_csv(seqtoid_path, sep='\t')
 
         # Get unique target_id sets
-        czid_ids = set(czid_df['target_id'])
-        seqtoid_ids = set(seqtoid_df['target_id'])
+        czid_ids = set(czid_df['target_id'].unique())
+        seqtoid_ids = set(seqtoid_df['target_id'].unique())
 
-        total_unique = len(czid_ids | seqtoid_ids)
+        # Counts
+        unique_czid = len(czid_ids - seqtoid_ids)
+        unique_seqtoid = len(seqtoid_ids - czid_ids)
+        common = len(czid_ids & seqtoid_ids)
+        total_unique = unique_czid + unique_seqtoid + common
 
-        # Absent in seqtoid (from czid's perspective)
-        absent_in_seqtoid = len(czid_ids - seqtoid_ids)
-        prop_absent_seqtoid = absent_in_seqtoid / len(czid_ids) if len(czid_ids) > 0 else 0
-
-        # Absent in czid (from seqtoid's perspective)
-        absent_in_czid = len(seqtoid_ids - czid_ids)
-        prop_absent_czid = absent_in_czid / len(seqtoid_ids) if len(seqtoid_ids) > 0 else 0
-
-        # Average proportion
-        avg_proportion = (prop_absent_seqtoid + prop_absent_czid) / 2
+        # Proportion of discrepancies (unique to either / total unique)
+        discrepancy_proportion = (unique_czid + unique_seqtoid) / total_unique if total_unique > 0 else 0
 
         # Categorize
-        if avg_proportion < 0.05:
+        if discrepancy_proportion < 0.05:
             category = 'equivalent'
-        elif avg_proportion < 0.1:
+        elif discrepancy_proportion < 0.1:
             category = 'warning'
         else:
             category = 'significant'
 
         symbol = DIFF_SYMBOLS.get(category, category)
 
-        print(f"  - {sample}: absent proportion {avg_proportion:.4f} (czid absent {prop_absent_czid:.4f}, seqtoid absent {prop_absent_seqtoid:.4f}) → {symbol}")
+        print(f"  - {sample}: discrepancy proportion {discrepancy_proportion:.4f} (unique czid {unique_czid}, unique seqtoid {unique_seqtoid}, common {common}) → {symbol}")
 
         results.append({
             'sample': sample,
-            'czid_unique_targets': len(czid_ids),
-            'seqtoid_unique_targets': len(seqtoid_ids),
+            'unique_czid': unique_czid,
+            'unique_seqtoid': unique_seqtoid,
+            'common': common,
             'total_unique': total_unique,
-            'absent_in_czid': absent_in_czid,
-            'prop_absent_in_czid': round(prop_absent_czid, 6),
-            'absent_in_seqtoid': absent_in_seqtoid,
-            'prop_absent_in_seqtoid': round(prop_absent_seqtoid, 6),
-            'avg_absent_proportion': round(avg_proportion, 6),
+            'discrepancy_proportion': round(discrepancy_proportion, 6),
             'category': category,
             'symbol': symbol
         })
