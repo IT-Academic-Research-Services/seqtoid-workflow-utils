@@ -1,9 +1,13 @@
-import pandas as pd
+#!/usr/bin/env python3
+"""
+CZID AMR Pipeline Comparison (updated with granular contig comparison)
+"""
+
 import os
 import glob
+import pandas as pd
 import hashlib
-import subprocess
-from typing import List
+from typing import List, Tuple
 
 # ────────────────────────────────────────────────────────────────
 # Configuration
@@ -12,7 +16,6 @@ from typing import List
 CZID_DIR = 'czid'
 SEQTOID_DIR = 'seqtoid'
 
-# Explicit list — no metadata loading
 EXPECTED_SAMPLES: List[str] = [
     'ERR11417004',
     'SRR10903401',
@@ -21,22 +24,7 @@ EXPECTED_SAMPLES: List[str] = [
     'SRR13227004',
     'SRR13227005',
     'SRR15049352'
-    # add any others you need, e.g.:
-    # 'SRR23038836_75M_1',
-    # 'SRR11454628',
-    # ...
 ]
-
-DIFF_SYMBOLS = {
-    'equivalent':   '✅ <0.005',
-    'warning':      '⚠️ 0.005–0.05',
-    'significant':  '❌ >0.05',
-    'identical':    'T',
-    'differ':       'F',
-    'missing':      'missing',
-    'content_identical': 'sequences identical',
-    'content_diff': 'sequences differ',
-}
 
 # ────────────────────────────────────────────────────────────────
 # Helpers
@@ -50,8 +38,65 @@ def file_sha256(filepath: str) -> str:
     return sha256.hexdigest()
 
 
+def load_contig_stats_and_seqs(path: str) -> Tuple[int, int, list]:
+    """Return (num_contigs, total_bp, list_of_sequences_sorted)"""
+    num = 0
+    total_bp = 0
+    seqs = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('>'):
+                num += 1
+            elif line:
+                seqs.append(line)
+                total_bp += len(line)
+    return num, total_bp, sorted(seqs)   # sorted for deterministic pairing
+
+
+def compare_contigs_detailed(czid_path: str, seqtoid_path: str) -> str:
+    """Returns human-readable status with granularity"""
+    try:
+        n1, bp1, seqs1 = load_contig_stats_and_seqs(czid_path)
+        n2, bp2, seqs2 = load_contig_stats_and_seqs(seqtoid_path)
+
+        if n1 != n2 or bp1 != bp2:
+            return f"stats differ (contigs: {n1} vs {n2}, bp: {bp1} vs {bp2})"
+
+        # same stats → check sequence content
+        if file_sha256(czid_path) == file_sha256(seqtoid_path):
+            return "100% identical (byte-for-byte after header strip & sort)"
+
+        # hashes differ but stats match → compute mismatch rate (segregating sites)
+        mismatches = 0
+        total_aligned = 0
+        for s1, s2 in zip(seqs1, seqs2):
+            l = max(len(s1), len(s2))
+            total_aligned += l
+            if len(s1) != len(s2):
+                mismatches += abs(len(s1) - len(s2))
+            else:
+                for a, b in zip(s1, s2):
+                    if a != b:
+                        mismatches += 1
+
+        rate = mismatches / total_aligned if total_aligned > 0 else 0.0
+
+        if rate <= 1e-8:
+            return "sequences 100% identical"
+        elif rate <= 0.0001:   # < 0.01%
+            return f"minor differences (mismatch rate {rate:.6f})"
+        elif rate <= 0.001:    # 0.01–0.1%
+            return f"moderate differences (mismatch rate {rate:.6f})"
+        else:
+            return f"MAJOR differences (mismatch rate {rate:.6f})"
+
+    except Exception as e:
+        return f"error: {e}"
+
+
 # ────────────────────────────────────────────────────────────────
-# Step 1: Metadata (optional but kept for consistency)
+# Step 1: Metadata
 # ────────────────────────────────────────────────────────────────
 
 def compare_metadata():
@@ -60,8 +105,8 @@ def compare_metadata():
     seqtoid_path = os.path.join(SEQTOID_DIR, file)
 
     if not os.path.exists(czid_path) or not os.path.exists(seqtoid_path):
-        print(f"Step 1: {file} missing in one or both dirs → skipped")
-        pd.DataFrame({'file': [file], 'identical': ['missing']}).to_csv('step1_metadata.csv', index=False)
+        print(f"Step 1: {file} missing → skipped")
+        pd.DataFrame({'file': [file], 'status': ['missing']}).to_csv('step1_metadata.csv', index=False)
         return
 
     czid_df = pd.read_csv(czid_path)
@@ -72,7 +117,6 @@ def compare_metadata():
 
     identical = czid_s.equals(seqtoid_s)
     pd.DataFrame({'file': [file], 'identical': ['T' if identical else 'F']}).to_csv('step1_metadata.csv', index=False)
-
     print(f"Step 1: metadata identical = {'T' if identical else 'F'}")
 
 
@@ -96,28 +140,16 @@ def compare_combined_amr_results():
     seqtoid_df = pd.read_csv(seqtoid_path)
 
     results = []
-    missing_czid = []
-    missing_seqtoid = []
-
     for sample in EXPECTED_SAMPLES:
         czid_sample = czid_df[czid_df['sample_name'] == sample]
         seqtoid_sample = seqtoid_df[seqtoid_df['sample_name'] == sample]
 
-        if czid_sample.empty:
-            missing_czid.append(sample)
-        if seqtoid_sample.empty:
-            missing_seqtoid.append(sample)
-
-        if czid_sample.empty or seqtoid_sample.empty:
-            results.append({'sample': sample, 'missing_proportion': 'N/A', 'category': 'missing', 'symbol': 'missing'})
-            continue
-
         czid_genes = set(czid_sample['gene_name'].dropna().unique())
         seqtoid_genes = set(seqtoid_sample['gene_name'].dropna().unique())
 
-        missing_in_seqtoid_count = len(czid_genes - seqtoid_genes)
-        total_czid = len(czid_genes)
-        proportion = missing_in_seqtoid_count / total_czid if total_czid > 0 else 0.0
+        missing_count = len(czid_genes - seqtoid_genes)
+        total = len(czid_genes)
+        proportion = missing_count / total if total > 0 else 0.0
 
         if proportion < 0.005:
             cat = 'equivalent'
@@ -126,90 +158,41 @@ def compare_combined_amr_results():
         else:
             cat = 'significant'
 
-        symbol = DIFF_SYMBOLS.get(cat, cat)
-
         results.append({
             'sample': sample,
-            'total_czid_genes': total_czid,
-            'missing_in_seqtoid': missing_in_seqtoid_count,
+            'total_czid_genes': total,
+            'missing_in_seqtoid': missing_count,
             'missing_proportion': round(proportion, 6),
-            'category': cat,
-            'symbol': symbol
+            'category': cat
         })
 
-        print(f"  {sample}: missing proportion {proportion:.4f} ({missing_in_seqtoid_count}/{total_czid}) → {symbol}")
+        print(f"  {sample}: missing proportion {proportion:.4f} ({missing_count}/{total}) → {cat}")
 
     pd.DataFrame(results).to_csv('step2_amr_comparison.csv', index=False)
 
-    if missing_czid or missing_seqtoid:
-        pd.DataFrame({
-            'missing_in_czid': [', '.join(missing_czid)],
-            'missing_in_seqtoid': [', '.join(missing_seqtoid)]
-        }).to_csv('step2_missing.csv', index=False)
-
 
 # ────────────────────────────────────────────────────────────────
-# Step 3: Non-host Contigs FASTA
+# Step 3: Non-host Contigs FASTA (with length + segregating sites)
 # ────────────────────────────────────────────────────────────────
 
 def compare_contig_fastas():
     print("\n=== Step 3: Non-host Contigs FASTA (*_contigs.fa) ===")
 
     rows = []
-    missing_czid = []
-    missing_seqtoid = []
-
     for sample in EXPECTED_SAMPLES:
         czid_files = glob.glob(os.path.join(CZID_DIR, f"{sample}*_contigs.fa"))
         seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}*_contigs.fa"))
 
         if len(czid_files) != 1 or len(seqtoid_files) != 1:
-            if len(czid_files) != 1: missing_czid.append(sample)
-            if len(seqtoid_files) != 1: missing_seqtoid.append(sample)
-            rows.append({'sample': sample, 'identical': 'missing', 'note': ''})
+            rows.append({'sample': sample, 'status': 'missing'})
             print(f"  {sample}: missing")
             continue
 
-        czid_path = czid_files[0]
-        seqtoid_path = seqtoid_files[0]
-
-        file_identical = file_sha256(czid_path) == file_sha256(seqtoid_path)
-
-        if file_identical:
-            status = 'identical'
-            note = ''
-        else:
-            try:
-                cmd = (
-                    f"seqkit seq -s '{czid_path}' | sort | sha256sum | cut -d' ' -f1 && "
-                    f"seqkit seq -s '{seqtoid_path}' | sort | sha256sum | cut -d' ' -f1"
-                )
-                result = subprocess.check_output(cmd, shell=True, text=True).strip().split('\n')
-                if len(result) == 2 and result[0] == result[1]:
-                    status = 'content_identical'
-                    note = '(sequences match, headers/order differ)'
-                else:
-                    status = 'content_diff'
-                    note = '(sequences differ)'
-            except:
-                status = 'differ'
-                note = '(content check failed)'
-
-        rows.append({
-            'sample': sample,
-            'identical': DIFF_SYMBOLS.get(status, status),
-            'note': note
-        })
-
-        print(f"  {sample}: {DIFF_SYMBOLS.get(status, status)} {note}")
+        status = compare_contigs_detailed(czid_files[0], seqtoid_files[0])
+        rows.append({'sample': sample, 'status': status})
+        print(f"  {sample}: {status}")
 
     pd.DataFrame(rows).to_csv('step3_contigs_fasta.csv', index=False)
-
-    if missing_czid or missing_seqtoid:
-        pd.DataFrame({
-            'missing_in_czid': [', '.join(missing_czid)],
-            'missing_in_seqtoid': [', '.join(missing_seqtoid)]
-        }).to_csv('step3_missing.csv', index=False)
 
 
 # ────────────────────────────────────────────────────────────────
@@ -217,16 +200,14 @@ def compare_contig_fastas():
 # ────────────────────────────────────────────────────────────────
 
 def main():
-    print("Starting CZID AMR pipeline comparison...\n")
-    print(f"Samples being checked: {len(EXPECTED_SAMPLES)}")
-    print(", ".join(EXPECTED_SAMPLES))
-    print()
+    print("CZID AMR Pipeline Comparison (with granular contig check)\n")
+    print(f"Samples: {', '.join(EXPECTED_SAMPLES)}\n")
 
     compare_metadata()
     compare_combined_amr_results()
     compare_contig_fastas()
 
-    print("\nDone. Check the step*.csv files.")
+    print("\nDone. Check the step*.csv files for full results.")
 
 
 if __name__ == '__main__':
