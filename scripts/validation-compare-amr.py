@@ -8,6 +8,8 @@ import glob
 import pandas as pd
 import hashlib
 from typing import List, Tuple
+import csv
+from collections import defaultdict
 
 # ────────────────────────────────────────────────────────────────
 # Configuration
@@ -54,45 +56,133 @@ def load_contig_stats_and_seqs(path: str) -> Tuple[int, int, list]:
     return num, total_bp, sorted(seqs)   # sorted for deterministic pairing
 
 
-def compare_contigs_detailed(czid_path: str, seqtoid_path: str) -> str:
-    """Returns human-readable status with granularity"""
-    try:
-        n1, bp1, seqs1 = load_contig_stats_and_seqs(czid_path)
-        n2, bp2, seqs2 = load_contig_stats_and_seqs(seqtoid_path)
 
-        if n1 != n2 or bp1 != bp2:
-            return f"stats differ (contigs: {n1} vs {n2}, bp: {bp1} vs {bp2})"
-
-        # same stats → check sequence content
-        if file_sha256(czid_path) == file_sha256(seqtoid_path):
-            return "100% identical (byte-for-byte after header strip & sort)"
-
-        # hashes differ but stats match → compute mismatch rate (segregating sites)
-        mismatches = 0
-        total_aligned = 0
-        for s1, s2 in zip(seqs1, seqs2):
-            l = max(len(s1), len(s2))
-            total_aligned += l
-            if len(s1) != len(s2):
-                mismatches += abs(len(s1) - len(s2))
+def read_fasta_to_dict(fasta_path: str) -> dict:
+    """Read FASTA → {header_first_word: sequence}"""
+    d = {}
+    current_id = None
+    seq_lines = []
+    with open(fasta_path) as f:
+        for line in f:
+            line = line.rstrip('\n')
+            if line.startswith('>'):
+                if current_id:
+                    d[current_id] = ''.join(seq_lines)
+                current_id = line[1:].split(maxsplit=1)[0]  # first token after >
+                seq_lines = []
             else:
-                for a, b in zip(s1, s2):
-                    if a != b:
-                        mismatches += 1
+                seq_lines.append(line)
+        if current_id:
+            d[current_id] = ''.join(seq_lines)
+    return d
 
-        rate = mismatches / total_aligned if total_aligned > 0 else 0.0
 
-        if rate <= 1e-8:
-            return "sequences 100% identical"
-        elif rate <= 0.0001:   # < 0.01%
-            return f"minor differences (mismatch rate {rate:.6f})"
-        elif rate <= 0.001:    # 0.01–0.1%
-            return f"moderate differences (mismatch rate {rate:.6f})"
+def compare_contigs_by_id_and_content(
+        czid_path: str,
+        seqtoid_path: str,
+        sample: str,
+        detail_csv: str = "step3_contigs_fasta.csv"
+) -> dict:
+    """
+    Compare two contigs FASTA files:
+      - By exact contig ID/name match
+      - By exact sequence content (ignoring IDs/headers)
+
+    Appends results to detail_csv
+    Returns summary dict for console + high-level summary
+    """
+    czid_dict = read_fasta_to_dict(czid_path)
+    seqtoid_dict = read_fasta_to_dict(seqtoid_path)
+
+    total_czid = len(czid_dict)
+    total_seqtoid = len(seqtoid_dict)
+
+    # ─── 1. Matching by exact contig ID ───────────────────────────────
+    common_ids = set(czid_dict) & set(seqtoid_dict)
+    only_czid_ids = set(czid_dict) - set(seqtoid_dict)
+    only_seqtoid_ids = set(seqtoid_dict) - set(czid_dict)
+
+    snps_total = 0
+    bases_total = 0
+    length_mismatches = 0
+
+    detail_rows = []
+
+    for cid in sorted(common_ids):
+        s1 = czid_dict[cid]
+        s2 = seqtoid_dict[cid]
+        l1, l2 = len(s1), len(s2)
+
+        if l1 != l2:
+            length_mismatches += 1
+            bases_total += max(l1, l2)
+            status = f"length mismatch ({l1} vs {l2})"
+            snps = 0
         else:
-            return f"MAJOR differences (mismatch rate {rate:.6f})"
+            diffs = sum(a != b for a, b in zip(s1, s2))
+            snps_total += diffs
+            bases_total += l1
+            status = "identical" if diffs == 0 else f"{diffs} SNPs"
 
-    except Exception as e:
-        return f"error: {e}"
+        detail_rows.append([sample, "by_name", cid, status, diffs, l1])
+
+    snp_rate_name = snps_total / bases_total if bases_total > 0 else 0.0
+
+    by_name = {
+        "total_czid": total_czid,
+        "total_seqtoid": total_seqtoid,
+        "common": len(common_ids),
+        "only_czid": len(only_czid_ids),
+        "only_seqtoid": len(only_seqtoid_ids),
+        "length_mismatches": length_mismatches,
+        "snps": snps_total,
+        "snp_rate": round(snp_rate_name, 6),
+    }
+
+    # ─── 2. Matching by exact sequence content ────────────────────────
+    czid_seq_set = set(czid_dict.values())
+    seqtoid_seq_set = set(seqtoid_dict.values())
+    common_sequences = czid_seq_set & seqtoid_seq_set
+
+    by_content = {
+        "common": len(common_sequences),
+        "only_czid": len(czid_seq_set - seqtoid_seq_set),
+        "only_seqtoid": len(seqtoid_seq_set - czid_seq_set),
+    }
+
+    # ─── Verdict logic ────────────────────────────────────────────────
+    verdict = "identical"
+    if by_content["only_czid"] > 0 or by_content["only_seqtoid"] > 0:
+        verdict = "different contig set"
+    elif by_name["snp_rate"] > 1e-5 or by_name["length_mismatches"] > 0:
+        verdict = f"SNPs or length differences (rate {by_name['snp_rate']:.6f})"
+
+    # ─── Console output ───────────────────────────────────────────────
+    print(f"  {sample:20} {verdict}")
+    print(f"     by name:     {by_name['common']}/{by_name['total_czid']} common "
+          f"({by_name['only_czid']} only czid, {by_name['only_seqtoid']} only seqtoid) "
+          f" | snp rate {by_name['snp_rate']:.6f}")
+    print(f"     by content:  {by_content['common']} common sequences "
+          f"({by_content['only_czid']} only czid, {by_content['only_seqtoid']} only seqtoid)")
+
+    # ─── Append detail rows to CSV ────────────────────────────────────
+    header = ["sample", "match_type", "contig_id", "status", "snps_or_gaps", "length"]
+    file_exists = os.path.exists(detail_csv)
+
+    with open(detail_csv, 'a', newline='') as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(header)
+        writer.writerows(detail_rows)
+
+    # ─── Return summary for high-level CSV ────────────────────────────
+    return {
+        "sample": sample,
+        "verdict": verdict,
+        "by_name": by_name,
+        "by_content": by_content
+    }
+
 
 
 # ────────────────────────────────────────────────────────────────
@@ -175,24 +265,57 @@ def compare_combined_amr_results():
 # Step 3: Non-host Contigs FASTA (with length + segregating sites)
 # ────────────────────────────────────────────────────────────────
 
+
 def compare_contig_fastas():
-    print("\n=== Step 3: Non-host Contigs FASTA (*_contigs.fa) ===")
+    print("\n=== Step 3: Contig FASTA comparison ===\n")
 
-    rows = []
+    detail_csv = "step3_contigs_fasta.csv"
+    summary_csv = "step3_contigs_summary.csv"
+
+    # Prepare / clear detail CSV
+    if os.path.exists(detail_csv):
+        os.remove(detail_csv)
+
+    summary_data = []
+
     for sample in EXPECTED_SAMPLES:
-        czid_files = glob.glob(os.path.join(CZID_DIR, f"{sample}*_contigs.fa"))
-        seqtoid_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}*_contigs.fa"))
+        cz_files = glob.glob(os.path.join(CZID_DIR, f"{sample}*_contigs.fa"))
+        sq_files = glob.glob(os.path.join(SEQTOID_DIR, f"{sample}*_contigs.fa"))
 
-        if len(czid_files) != 1 or len(seqtoid_files) != 1:
-            rows.append({'sample': sample, 'status': 'missing'})
-            print(f"  {sample}: missing")
+        if len(cz_files) != 1 or len(sq_files) != 1:
+            print(f"  {sample:20} missing or multiple files")
+            summary_data.append({
+                "sample": sample,
+                "verdict": "missing file(s)",
+                "by_name": {"total_czid": "N/A"},
+                "by_content": {"common": "N/A"}
+            })
             continue
 
-        status = compare_contigs_detailed(czid_files[0], seqtoid_files[0])
-        rows.append({'sample': sample, 'status': status})
-        print(f"  {sample}: {status}")
+        res = compare_contigs_by_id_and_content(cz_files[0], sq_files[0], sample, detail_csv)
+        summary_data.append(res)
 
-    pd.DataFrame(rows).to_csv('step3_contigs_fasta.csv', index=False)
+    # Write high-level summary CSV
+    with open(summary_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=[
+            "sample", "verdict",
+            "by_name_total_czid", "by_name_common", "by_name_snp_rate",
+            "by_content_common"
+        ])
+        writer.writeheader()
+        for row in summary_data:
+            writer.writerow({
+                "sample": row["sample"],
+                "verdict": row["verdict"],
+                "by_name_total_czid": row["by_name"].get("total_czid", "N/A"),
+                "by_name_common": row["by_name"].get("common", "N/A"),
+                "by_name_snp_rate": row["by_name"].get("snp_rate", "N/A"),
+                "by_content_common": row["by_content"].get("common", "N/A")
+            })
+
+    print(f"\nDetail   → {detail_csv}")
+    print(f"Summary  → {summary_csv}")
+
 
 
 # ────────────────────────────────────────────────────────────────
