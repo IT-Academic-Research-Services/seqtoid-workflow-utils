@@ -35,11 +35,12 @@ import csv
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -80,7 +81,11 @@ def _parse_sample_spec(spec: str) -> Sample:
     if len(parts) == 1:
         return Sample(label=label, r1=Path(parts[0]).expanduser().resolve(), r2=None)
     if len(parts) == 2:
-        return Sample(label=label, r1=Path(parts[0]).expanduser().resolve(), r2=Path(parts[1]).expanduser().resolve())
+        return Sample(
+            label=label,
+            r1=Path(parts[0]).expanduser().resolve(),
+            r2=Path(parts[1]).expanduser().resolve(),
+        )
     raise ValueError(f"invalid --sample spec {spec!r}; expected 1 or 2 paths")
 
 
@@ -139,12 +144,14 @@ def build_command(
         use_diamond: bool,
         common_args: dict[str, Optional[str]],
         extra_args: list[str],
+        out_dir: Path,
 ) -> list[str]:
     cmd: list[str] = [runner, "--module", module, "--threads", str(threads)]
     if use_smt:
         cmd.append("--use-smt")
 
     cmd.extend(["--nvme-scratch", str(nvme_scratch)])
+    cmd.extend(["-o", str(out_dir)])
 
     if use_diamond:
         cmd.append("--use-diamond")
@@ -207,8 +214,6 @@ def write_manifest(path: Path, *, cmd: list[str], rc: int, sample: Sample, use_d
     path.write_text(json.dumps(payload, indent=2) + "\n")
 
 
-
-
 def mode_tag(mode: str) -> str:
     return "diamond" if mode == "diamond" else "mmseqs2"
 
@@ -233,7 +238,7 @@ def finalize_pipeline_output(pipeline_stage_dir: Path, run_dir: Path, mode: str)
 
     # If the stage dir contains exactly one top-level directory, that is usually
     # the actual pipeline output tree. Move that tree instead of the stage wrapper.
-    children = [p for p in pipeline_stage_dir.iterdir() if not p.name.startswith('.')]
+    children = [p for p in pipeline_stage_dir.iterdir() if not p.name.startswith(".")]
     candidate = None
     if len(children) == 1 and children[0].is_dir():
         candidate = children[0]
@@ -261,6 +266,7 @@ def finalize_pipeline_output(pipeline_stage_dir: Path, run_dir: Path, mode: str)
         pipeline_stage_dir.rmdir()
     except OSError:
         pass
+
 
 def run_one(
         *,
@@ -290,6 +296,7 @@ def run_one(
         use_diamond=use_diamond,
         common_args=common_args,
         extra_args=extra_args,
+        out_dir=run_dir,
     )
 
     command_txt = run_dir / "command.sh"
@@ -415,7 +422,20 @@ def main(argv: list[str]) -> int:
     }
 
     # Basic validation: only check the args that are commonly needed for the run.
-    for key in ("kallisto_index", "ercc_bowtie2_index", "host_bowtie2_index", "host_hisat2_index", "taxid_lineages_db", "acc2taxid_db", "nt_db_size", "nt", "nr", "nt_offset_db", "nr_offset_db", "nt_split_dir"):
+    for key in (
+            "kallisto_index",
+            "ercc_bowtie2_index",
+            "host_bowtie2_index",
+            "host_hisat2_index",
+            "taxid_lineages_db",
+            "acc2taxid_db",
+            "nt_db_size",
+            "nt",
+            "nr",
+            "nt_offset_db",
+            "nr_offset_db",
+            "nt_split_dir",
+    ):
         if not common_args.get(key):
             print(f"missing required pipeline arg: --{key.replace('_', '-')}", file=sys.stderr)
             return 2
