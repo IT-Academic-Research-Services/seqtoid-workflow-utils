@@ -5,27 +5,14 @@ Runs each sample twice:
   1) with --use-diamond
   2) without --use-diamond
 
+New flag:
+  --mmseqs-only   : run ONLY MMseqs2 (skip Diamond completely)
+
 Logs are kept per sample/per mode:
-  आउट dir/
+  out_dir/
     sample_label/
-      diamond/
-        out.txt
-        err.txt
-        command.sh
-        run.json
-      mmseqs/
-        out.txt
-        err.txt
-        command.sh
-        run.json
-
-Sample input can come from a CSV/TSV sheet with columns:
-  label,r1,r2
-or from repeated --sample specs like:
-  --sample label=/path/to/R1.fastq.gz,/path/to/R2.fastq.gz
-  --sample label=/path/to/single.fastq.gz
-
-The script is intentionally explicit: no directory scanning, no guessing.
+      diamond/...
+      mmseqs/...
 """
 
 from __future__ import annotations
@@ -54,7 +41,6 @@ def _clean_label(label: str) -> str:
     label = label.strip()
     if not label:
         raise ValueError("sample label cannot be empty")
-    # Keep it filesystem-friendly.
     safe = []
     for ch in label:
         if ch.isalnum() or ch in ("-", "_", "."):
@@ -65,7 +51,6 @@ def _clean_label(label: str) -> str:
 
 
 def _parse_sample_spec(spec: str) -> Sample:
-    """Parse LABEL=R1[,R2] or LABEL:R1[:R2]."""
     if "=" in spec:
         label, rest = spec.split("=", 1)
         parts = [p.strip() for p in rest.split(",") if p.strip()]
@@ -73,9 +58,7 @@ def _parse_sample_spec(spec: str) -> Sample:
         label, rest = spec.split(":", 1)
         parts = [p.strip() for p in rest.split(":") if p.strip()]
     else:
-        raise ValueError(
-            f"invalid --sample spec {spec!r}; use LABEL=R1[,R2] or LABEL:R1[:R2]"
-        )
+        raise ValueError(f"invalid --sample spec {spec!r}; use LABEL=R1[,R2] or LABEL:R1[:R2]")
 
     label = _clean_label(label)
     if len(parts) == 1:
@@ -97,7 +80,6 @@ def _read_sample_sheet(path: Path) -> list[Sample]:
     if not text:
         raise ValueError(f"sample sheet is empty: {path}")
 
-    # Detect delimiter from the header line.
     header = next((line for line in text if line.strip() and not line.lstrip().startswith("#")), None)
     if header is None:
         raise ValueError(f"sample sheet has no usable rows: {path}")
@@ -113,9 +95,7 @@ def _read_sample_sheet(path: Path) -> list[Sample]:
         r1_raw = (row.get("r1") or row.get("R1") or "").strip()
         r2_raw = (row.get("r2") or row.get("R2") or "").strip()
         if not label or not r1_raw:
-            raise ValueError(
-                f"sample sheet row missing required label/r1 values: {row!r}"
-            )
+            raise ValueError(f"sample sheet row missing required label/r1 values: {row!r}")
         samples.append(
             Sample(
                 label=label,
@@ -126,11 +106,6 @@ def _read_sample_sheet(path: Path) -> list[Sample]:
     if not samples:
         raise ValueError(f"no samples parsed from {path}")
     return samples
-
-
-def _add_optional_arg(cmd: list[str], flag: str, value: Optional[str]) -> None:
-    if value is not None and value != "":
-        cmd.extend([flag, value])
 
 
 def build_command(
@@ -160,7 +135,6 @@ def build_command(
     if sample.r2 is not None:
         cmd.extend(["-I", str(sample.r2)])
 
-    # Environment-specific pipeline arguments.
     for flag in (
             "kallisto_index",
             "ercc_bowtie2_index",
@@ -212,60 +186,6 @@ def write_manifest(path: Path, *, cmd: list[str], rc: int, sample: Sample, use_d
         "command": cmd,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n")
-
-
-def mode_tag(mode: str) -> str:
-    return "diamond" if mode == "diamond" else "mmseqs2"
-
-
-def rename_pipeline_output_dir(src_name: str, mode: str) -> str:
-    tag = mode_tag(mode)
-    if f"_{tag}_" in src_name or src_name.startswith(f"{tag}_") or src_name.endswith(f"_{tag}"):
-        return src_name
-
-    # Prefer to splice the backend tag immediately before the read marker.
-    for needle in ("_R1.fastq", "_R2.fastq", "_R1", "_R2"):
-        if needle in src_name:
-            return src_name.replace(needle, f"_{tag}{needle}", 1)
-
-    return f"{src_name}_{tag}"
-
-
-def finalize_pipeline_output(pipeline_stage_dir: Path, run_dir: Path, mode: str) -> None:
-    """Move the pipeline-generated output tree into a mode-tagged final location."""
-    if not pipeline_stage_dir.exists():
-        return
-
-    # If the stage dir contains exactly one top-level directory, that is usually
-    # the actual pipeline output tree. Move that tree instead of the stage wrapper.
-    children = [p for p in pipeline_stage_dir.iterdir() if not p.name.startswith(".")]
-    candidate = None
-    if len(children) == 1 and children[0].is_dir():
-        candidate = children[0]
-    elif len(children) == 0:
-        return
-    else:
-        candidate = pipeline_stage_dir
-
-    if candidate is pipeline_stage_dir:
-        dest_name = rename_pipeline_output_dir(pipeline_stage_dir.name, mode)
-        dest = run_dir / dest_name
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.move(str(pipeline_stage_dir), str(dest))
-        return
-
-    dest_name = rename_pipeline_output_dir(candidate.name, mode)
-    dest = run_dir / dest_name
-    if dest.exists():
-        shutil.rmtree(dest)
-    shutil.move(str(candidate), str(dest))
-
-    # Clean up the now-empty staging directory if possible.
-    try:
-        pipeline_stage_dir.rmdir()
-    except OSError:
-        pass
 
 
 def run_one(
@@ -339,7 +259,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--sample", action="append", default=[], help="LABEL=R1[,R2] or LABEL:R1[:R2]; repeatable")
     p.add_argument("--dry-run", action="store_true")
 
-    # Required-ish inputs for your current pipeline example.
+    # NEW: MMseqs-only flag
+    p.add_argument("--mmseqs-only", "-m", action="store_true",
+                   help="Run ONLY MMseqs2 mode (skip Diamond completely)")
+
+    # Required-ish inputs
     p.add_argument("--kallisto-index")
     p.add_argument("--ercc-bowtie2-index")
     p.add_argument("--host-bowtie2-index")
@@ -366,12 +290,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--max-reads")
     p.add_argument("--stall-threshold")
 
-    p.add_argument(
-        "--extra-arg",
-        action="append",
-        default=[],
-        help="additional raw argument appended verbatim to every run; repeatable",
-    )
+    p.add_argument("--extra-arg", action="append", default=[],
+                   help="additional raw argument appended verbatim to every run; repeatable")
 
     args = p.parse_args(argv)
     return args
@@ -421,30 +341,26 @@ def main(argv: list[str]) -> int:
         "stall_threshold": args.stall_threshold,
     }
 
-    # Basic validation: only check the args that are commonly needed for the run.
+    # Basic validation
     for key in (
-            "kallisto_index",
-            "ercc_bowtie2_index",
-            "host_bowtie2_index",
-            "host_hisat2_index",
-            "taxid_lineages_db",
-            "acc2taxid_db",
-            "nt_db_size",
-            "nt",
-            "nr",
-            "nt_offset_db",
-            "nr_offset_db",
-            "nt_split_dir",
+            "kallisto_index", "ercc_bowtie2_index", "host_bowtie2_index",
+            "host_hisat2_index", "taxid_lineages_db", "acc2taxid_db",
+            "nt_db_size", "nt", "nr", "nt_offset_db", "nr_offset_db", "nt_split_dir",
     ):
         if not common_args.get(key):
             print(f"missing required pipeline arg: --{key.replace('_', '-')}", file=sys.stderr)
             return 2
 
-    # Run Diamond first, then MMseqs.
-    modes = [True, False]
+    # === MMSEQS-ONLY MODE ===
+    if args.mmseqs_only:
+        modes = [False]   # False = MMseqs2 only
+        print("=== RUNNING MMSEQS-ONLY MODE (--mmseqs-only) ===")
+    else:
+        modes = [True, False]   # original behavior
+        print("=== RUNNING BOTH DIAMOND + MMSEQS ===")
+
     worst_rc = 0
     for sample in samples:
-        # Verify inputs exist before kicking off any work.
         if not sample.r1.exists():
             print(f"missing R1 for {sample.label}: {sample.r1}", file=sys.stderr)
             worst_rc = 2
@@ -469,9 +385,8 @@ def main(argv: list[str]) -> int:
                 dry_run=args.dry_run,
             )
             worst_rc = max(worst_rc, rc)
-            # Stop immediately on failure so runs stay sequential and easy to inspect.
             if rc != 0:
-                return rc
+                return rc   # stop on first failure
 
     return worst_rc
 
