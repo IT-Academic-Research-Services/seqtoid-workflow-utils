@@ -1,18 +1,12 @@
 #!/usr/bin/env python3
 """Sequential launcher for seqtoid-pipelines short_read_mngs.
 
-Runs each sample twice:
+Runs each sample twice by default:
   1) with --use-diamond
-  2) without --use-diamond
+  2) without --use-diamond (MMseqs2)
 
 New flag:
   --mmseqs-only   : run ONLY MMseqs2 (skip Diamond completely)
-
-Logs are kept per sample/per mode:
-  out_dir/
-    sample_label/
-      diamond/...
-      mmseqs/...
 """
 
 from __future__ import annotations
@@ -69,7 +63,7 @@ def _parse_sample_spec(spec: str) -> Sample:
             r1=Path(parts[0]).expanduser().resolve(),
             r2=Path(parts[1]).expanduser().resolve(),
         )
-    raise ValueError(f"invalid --sample spec {spec!r}; expected 1 or 2 paths")
+    raise ValueError(f"invalid --sample spec {spec!r}")
 
 
 def _read_sample_sheet(path: Path) -> list[Sample]:
@@ -259,11 +253,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--sample", action="append", default=[], help="LABEL=R1[,R2] or LABEL:R1[:R2]; repeatable")
     p.add_argument("--dry-run", action="store_true")
 
-    # NEW: MMseqs-only flag
+    # NEW FLAG
     p.add_argument("--mmseqs-only", "-m", action="store_true",
-                   help="Run ONLY MMseqs2 mode (skip Diamond completely)")
+                   help="Run ONLY MMseqs2 (skip Diamond completely)")
 
-    # Required-ish inputs
+    # Required pipeline args
     p.add_argument("--kallisto-index")
     p.add_argument("--ercc-bowtie2-index")
     p.add_argument("--host-bowtie2-index")
@@ -341,22 +335,20 @@ def main(argv: list[str]) -> int:
         "stall_threshold": args.stall_threshold,
     }
 
-    # Basic validation
-    for key in (
-            "kallisto_index", "ercc_bowtie2_index", "host_bowtie2_index",
-            "host_hisat2_index", "taxid_lineages_db", "acc2taxid_db",
-            "nt_db_size", "nt", "nr", "nt_offset_db", "nr_offset_db", "nt_split_dir",
-    ):
+    # Validation
+    for key in ("kallisto_index", "ercc_bowtie2_index", "host_bowtie2_index",
+                "host_hisat2_index", "taxid_lineages_db", "acc2taxid_db",
+                "nt_db_size", "nt", "nr", "nt_offset_db", "nr_offset_db", "nt_split_dir"):
         if not common_args.get(key):
             print(f"missing required pipeline arg: --{key.replace('_', '-')}", file=sys.stderr)
             return 2
 
-    # === MMSEQS-ONLY MODE ===
+    # Mode selection
     if args.mmseqs_only:
-        modes = [False]   # False = MMseqs2 only
+        modes = [False]  # only MMseqs2
         print("=== RUNNING MMSEQS-ONLY MODE (--mmseqs-only) ===")
     else:
-        modes = [True, False]   # original behavior
+        modes = [True, False]
         print("=== RUNNING BOTH DIAMOND + MMSEQS ===")
 
     worst_rc = 0
@@ -386,7 +378,7 @@ def main(argv: list[str]) -> int:
             )
             worst_rc = max(worst_rc, rc)
             if rc != 0:
-                return rc   # stop on first failure
+                return rc
 
     return worst_rc
 

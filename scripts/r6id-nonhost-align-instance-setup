@@ -1,0 +1,63 @@
+#!/bin/bash
+set -euo pipefail
+
+echo "=== SeqToID Alignment AMI Setup (Ubuntu) ==="
+
+sudo apt-get update && sudo apt-get upgrade -y
+sudo apt-get install -y curl unzip pigz mdadm xfsprogs build-essential
+
+# === AWS CLI v2 ===
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip
+sudo ./aws/install --update
+rm -rf aws awscliv2.zip
+
+# === s5cmd (pinned stable version) ===
+cd /tmp
+wget https://github.com/peak/s5cmd/releases/download/v2.3.0/s5cmd_2.3.0_Linux-64bit.tar.gz
+sudo tar -xzf s5cmd_2.3.0_Linux-64bit.tar.gz -C /usr/local/bin s5cmd
+rm s5cmd_2.3.0_Linux_x86_64.tar.gz
+
+# === Diamond + MMseqs2 ===
+cd /tmp
+wget https://github.com/bbuchfink/diamond/releases/latest/download/diamond-linux64.tar.gz
+tar -xzf diamond-linux64.tar.gz && sudo cp diamond /usr/local/bin/
+
+wget https://mmseqs.com/latest/mmseqs-linux-avx2.tar.gz
+tar -xzf mmseqs-linux-avx2.tar.gz && sudo cp -r mmseqs/bin/* /usr/local/bin/
+
+# === NVMe RAID-0 on /data ===
+echo "=== Setting up NVMe RAID-0 ==="
+sudo mkdir -p /data
+sudo mdadm --stop /dev/md0 2>/dev/null || true
+
+DEVICES=$(ls /dev/nvme[1-9]*n1 2>/dev/null | head -n 4)
+sudo mdadm --create --verbose /dev/md0 --level=0 --chunk=512 --raid-devices=4 $DEVICES --force
+sudo mkfs.xfs -f /dev/md0
+sudo mount /dev/md0 /data
+sudo chown -R ubuntu:ubuntu /data
+sudo chmod -R 775 /data
+
+# Make persistent
+sudo mdadm --detail --scan | sudo tee -a /etc/mdadm/mdadm.conf
+echo "/dev/md0 /data xfs defaults,noatime,discard 0 2" | sudo tee -a /etc/fstab
+
+# === Sync References ===
+echo "=== Syncing references from S3 (this will take 15-40 min) ==="
+sudo mkdir -p /data/refs
+
+s5cmd --numworkers 192 --concurrency 1024 sync "s3://seqtoid-public-references/phase2/refs/diamond/" /data/refs/diamond/
+s5cmd --numworkers 192 --concurrency 1024 sync "s3://seqtoid-public-references/phase2/refs/nrDB/" /data/refs/nrDB/
+s5cmd --numworkers 192 --concurrency 1024 sync "s3://seqtoid-public-references/phase2/refs/nt_split/" /data/refs/nt_split/
+
+# Small files
+s5cmd --numworkers 64 sync "s3://seqtoid-public-references/phase2/refs/" /data/refs/ \
+  --exclude "diamond/*" --exclude "nrDB/*" --exclude "nt_split/*"
+
+echo "=== Setup complete! ==="
+df -h /data
+du -sh /data/refs/*
+diamond version
+mmseqs version
+s5cmd version
+aws --version

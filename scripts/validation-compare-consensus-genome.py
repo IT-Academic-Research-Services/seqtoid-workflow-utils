@@ -15,7 +15,7 @@ SEQTOID_DIR = 'seqtoid'
 
 EXPECTED_SAMPLES: List[str] = [
     'SRR34692683',
-    'SRR34692681'
+    'SRR34692681',
 ]
 
 METADATA_FILE     = 'sample_metadata.csv'
